@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Python virtual environment & cache
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Build artifacts
+dist/
+build/
+out/
+*.egg-info/
+
+# Audio and user recordings (SECURITY: KEEP RECORDINGS PRIVATE)
+*.wav
+*.mp3
+*.ogg
+*.webm
+*.m4a
+recordings/
+uploads/
+storage/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Test coverage & caches
+coverage/
+htmlcov/
+.vitest/
+
+# Tool installations & Agent configs (local dev environment)
+.agents/
+skills-lock.json
+graphify-out/
+.cache/
+*.log
+
+# Sensitive datasets, resumes, and private research data
+datasets/private/
+datasets/raw/
+resumes/
+private_data/
+*.csv.private
+*.json.private
