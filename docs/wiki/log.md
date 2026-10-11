@@ -23,4 +23,6 @@ This append-only log tracks every ingest, synthesis, and architectural milestone
 - Configured CORS whitelist restricted to exact local frontend origins (`http://127.0.0.1:5173`, `http://localhost:5173`).
 - Built private audio storage service (`LocalStorageService`) with directory traversal protection, size caps, and zero public static-file exposure.
 - Wired frontend `useBackendStatus` hook and Header connectivity badge (`API Online` / `API Offline`).
-- Verified via 10 pytest tests (backend) and 19 vitest tests (frontend). Live HTTP communication verified.
+- Resolved Starlette `testclient` warning cleanly via `httpx2`.
+- Verified via 10 pytest tests (backend) and 19 vitest tests (frontend). Live fault-injection verified graceful offline transition and auto-recovery.
+

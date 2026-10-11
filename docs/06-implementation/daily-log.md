@@ -140,13 +140,27 @@
 - `frontend/src/index.css`
 
 ### 3. Checks and Results
-- Backend automated: `uv run pytest` -> 10 passed in 0.90s.
-- Frontend automated: `npm run test` -> 19 passed in 5.30s.
-- Frontend compile: `npm run build` -> Succeeded in 435ms.
-- Live server curl/PowerShell: HTTP 200 OK for `/api/health`, verified CORS origin filtering.
+- **Backend Warning Resolution**:
+  - Identified `StarletteDeprecationWarning: Using 'httpx' with 'starlette.testclient' is deprecated; install 'httpx2' instead.` emitted by Starlette 1.7.0 `testclient`.
+  - Resolved cleanly by installing `httpx2` via `uv add --dev httpx2`.
+- **Automated Tests**:
+  - Backend: `uv run pytest` -> 10 passed in 0.97s (0 warnings across `test_health.py`, `test_cors.py`, `test_storage.py`, `test_errors.py`).
+  - Frontend: `npm.cmd test -- --run` -> 19 passed across 6 test suites in 6.11s (including `Header.test.tsx` verifying connectivity badges).
+  - Frontend Typecheck & Build: `npm.cmd run build` (`tsc -b && vite build`) -> Succeeded in 496ms without warnings.
+- **Live Runtime & Browser Verification (Manual & Automated HTTP)**:
+  - Frontend Dev Server: `http://127.0.0.1:5173/` (HTTP 200 OK).
+  - Backend API: `http://127.0.0.1:8000/` (`GET /api/health` returned HTTP 200 OK with `status: healthy`, `version: 0.1.0`).
+  - Browser UI Connection Status: Header displays green badge `API Online (v0.1.0)`.
+  - Backend Unavailability & Recovery Fault-Injection Test:
+    1. Stopped backend process (`kill task-333`).
+    2. Verified website polling detected failure gracefully within 2.5s timeout.
+    3. Website Header dynamically transitioned to red status badge: `API Offline`.
+    4. Restarted backend (`uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000` as `task-450`).
+    5. Verified website auto-recovered on the next 10-second polling cycle, transitioning back to green `API Online (v0.1.0)`. Uvicorn logs confirmed successful incoming health requests (`200 OK`).
 
 ### 4. Unresolved Issues / Blockers
 - None.
 
 ### 5. Next Task
-- Task 2.2: Implement audio upload endpoint (`POST /api/sessions/{id}/recording`) with file validation, MIME type verification, and initial Whisper transcription integration.
+- Task 2.2: Implement audio upload endpoint (`POST /api/sessions/{session_id}/recording`) with file validation, MIME type verification, and `LocalStorageService` integration.
+
