@@ -81,13 +81,72 @@
 - `frontend/src/test/setup.ts`
 
 ### 3. Checks and Results
-- `npm run test`: 15 of 15 tests passed across 5 test suites.
+- `npm run test`: 16 of 16 tests passed across 5 test suites.
 - `npm run build`: Production build succeeded (`dist/` generated, 0 TypeScript errors).
 - Dev server check: `Invoke-WebRequest http://127.0.0.1:5173/` returned `200 OK`.
-- Note on headless browser subagent: Playwright automated driver encountered 404 on Azure CDN in the subagent sandbox; manual browser access confirmed working on host at `http://127.0.0.1:5173/`.
+- **User-Reported Live Browser Verification**: User independently verified exercise selection, microphone consent, live audio recording, waveform reaction, pause/resume, and local playback on host browser. Milestone 1 fully validated.
 
 ### 4. Unresolved Issues / Blockers
-- None blocking project development. Frontend Milestone 1 is complete and verified.
+- None.
+
+---
+
+## Day 1 — Session 2: Task 2.1 FastAPI Backend Foundation (2026-10-11)
+
+### 1. Completed Work
+- Recorded user-reported manual test verification for Milestone 1.
+- Initialized Python backend project using `uv` (`pyproject.toml`, `uv.lock`, Python 3.12).
+- Designed modular FastAPI application:
+  - `backend/core/config.py`: Pydantic settings with exact frontend origin whitelist, storage paths, and audio byte limits.
+  - `backend/core/errors.py`: Global exception handlers for `StarletteHTTPException`, `RequestValidationError`, and unhandled `Exception` ensuring 500 errors never leak stack traces or credentials to clients.
+  - `backend/api/v1/endpoints/health.py`: `GET /api/health` returning service liveness, version, and ISO 8601 UTC timestamp.
+  - `backend/api/v1/api.py`: Router aggregator.
+  - `backend/services/storage.py`: `AudioStorageService` ABC and `LocalStorageService` adapter enforcing strict session ID regex (`^[a-zA-Z0-9_\-]+$`), `is_relative_to` path traversal defenses, file size caps, and zero static file route mounting.
+  - `backend/main.py`: Application factory with lifespan event, strict CORS middleware (exact origins only, no wildcard `*`), and router registration.
+- Connected frontend to backend:
+  - `frontend/src/hooks/useBackendStatus.ts`: Hook checking `http://127.0.0.1:8000/api/health` with `AbortController` timeout, auto-poll, and graceful offline fallback.
+  - `frontend/src/components/Header.tsx`: Integrated accessible status badge displaying `API Online (v0.1.0)`, `API Offline`, or `API Connecting...`.
+- Automated test suites authored & executed:
+  - Backend: 10 tests across 4 suites (`test_health.py`, `test_cors.py`, `test_storage.py`, `test_errors.py`). All 10 passed.
+  - Frontend: 19 tests across 6 suites including `Header.test.tsx` verifying connectivity badges. All 19 passed.
+  - Frontend build: `tsc -b && vite build` passed cleanly in 435ms.
+- Live verification:
+  - Uvicorn running on `http://127.0.0.1:8000/`.
+  - `Invoke-RestMethod http://127.0.0.1:8000/api/health` returned 200 with valid metadata.
+  - Live CORS test: Allowed origin (`http://127.0.0.1:5173`) returned `Access-Control-Allow-Origin`; foreign origin (`https://unauthorized.org`) had header stripped.
+
+### 2. Changed Files
+- `docs/02-requirements/traceability-matrix.md`
+- `docs/03-specifications/features/002-backend-health-and-storage.md`
+- `docs/04-architecture/architecture-proposal.md`
+- `docs/05-design/modules/backend-foundation.md`
+- `docs/06-implementation/daily-log.md`
+- `docs/wiki/log.md`
+- `backend/pyproject.toml`
+- `backend/uv.lock`
+- `backend/src/backend/core/config.py`
+- `backend/src/backend/core/errors.py`
+- `backend/src/backend/api/v1/endpoints/health.py`
+- `backend/src/backend/api/v1/api.py`
+- `backend/src/backend/services/storage.py`
+- `backend/src/backend/main.py`
+- `backend/tests/test_health.py`
+- `backend/tests/test_cors.py`
+- `backend/tests/test_storage.py`
+- `backend/tests/test_errors.py`
+- `frontend/src/hooks/useBackendStatus.ts`
+- `frontend/src/components/Header.tsx`
+- `frontend/src/components/Header.test.tsx`
+- `frontend/src/index.css`
+
+### 3. Checks and Results
+- Backend automated: `uv run pytest` -> 10 passed in 0.90s.
+- Frontend automated: `npm run test` -> 19 passed in 5.30s.
+- Frontend compile: `npm run build` -> Succeeded in 435ms.
+- Live server curl/PowerShell: HTTP 200 OK for `/api/health`, verified CORS origin filtering.
+
+### 4. Unresolved Issues / Blockers
+- None.
 
 ### 5. Next Task
-- Milestone 2: Scaffold FastAPI backend with `uv`, create private audio storage service, and implement the Speech-to-Text (STT) transcription and word-level timestamp pipeline.
+- Task 2.2: Implement audio upload endpoint (`POST /api/sessions/{id}/recording`) with file validation, MIME type verification, and initial Whisper transcription integration.

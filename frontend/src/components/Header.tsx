@@ -1,6 +1,15 @@
 import React from 'react'
+import { useBackendStatus } from '../hooks/useBackendStatus'
+import type { BackendHealthInfo } from '../hooks/useBackendStatus'
 
-export const Header: React.FC = () => {
+interface HeaderProps {
+  customHealthInfo?: BackendHealthInfo
+}
+
+export const Header: React.FC<HeaderProps> = ({ customHealthInfo }) => {
+  const { healthInfo: hookHealthInfo } = useBackendStatus()
+  const health = customHealthInfo || hookHealthInfo
+
   return (
     <header className="site-header">
       <div className="header-inner container">
@@ -23,10 +32,40 @@ export const Header: React.FC = () => {
         </div>
 
         <div className="header-meta">
-          <span className="badge badge-subtle">
-            <span className="status-dot status-dot-success"></span>
-            Milestone 1: Audio Engine Verified
-          </span>
+          {/* Accessible Backend Connection Status */}
+          <div className="backend-status-wrapper" role="status" aria-live="polite">
+            {health.status === 'online' && (
+              <span
+                className="badge badge-success"
+                title={`FastAPI backend connected at http://127.0.0.1:8000/api/health (${health.version})`}
+                id="backend-status-online"
+              >
+                <span className="status-dot status-dot-success" aria-hidden="true"></span>
+                API Online (v{health.version || '0.1.0'})
+              </span>
+            )}
+            {health.status === 'offline' && (
+              <span
+                className="badge badge-warning"
+                title="FastAPI backend is unreachable at http://127.0.0.1:8000. Start backend with: uv run uvicorn backend.main:app"
+                id="backend-status-offline"
+              >
+                <span className="status-dot status-dot-warning" aria-hidden="true"></span>
+                API Offline
+              </span>
+            )}
+            {health.status === 'checking' && (
+              <span
+                className="badge badge-subtle"
+                title="Checking backend liveness..."
+                id="backend-status-checking"
+              >
+                <span className="status-dot status-dot-checking" aria-hidden="true"></span>
+                API Connecting...
+              </span>
+            )}
+          </div>
+
           <span className="privacy-pill" title="Recordings are kept privately on your client device">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />

@@ -205,6 +205,27 @@ body {
   box-shadow: 0 0 6px var(--color-success);
 }
 
+.status-dot-warning {
+  background: var(--color-warning);
+  box-shadow: 0 0 6px var(--color-warning);
+}
+
+.status-dot-checking {
+  background: var(--text-tertiary);
+  animation: pulse-checking 1.2s infinite ease-in-out;
+}
+
+@keyframes pulse-checking {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.badge-warning {
+  background: var(--color-warning-bg);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
 /* Academic Banner */
 .banner-academic {
   display: flex;

@@ -67,9 +67,9 @@ VERBAMIND follows a modular client-server architecture designed for high reliabi
 - **Rationale**: For production and final submission, PostgreSQL handles relational data (users, exercises, attempts, word tokens) robustly. For local initial development, a SQLAlchemy / SQLModel repository pattern enables zero-friction SQLite testing without requiring a running Docker or Postgres service immediately.
 
 ### D. Private Audio Storage
-- **Verdict**: **Approved**.
+- **Verdict**: **Approved & Implemented (Task 2.1)**.
 - **Security Rule**: Audio files must never be placed in a public web root.
-- **Implementation**: Stored in a secured local directory (`storage/recordings/`) accessible only through the backend API with ownership verification. An abstracted `StorageBackend` interface will allow swapping to AWS S3 or MinIO if needed.
+- **Implementation**: Stored in a secured local directory (`storage/recordings/`) outside the public web root. `LocalStorageService` implements the `AudioStorageService` interface with directory traversal defenses (`is_relative_to` and strict session ID regex validation). The storage directory is strictly unmounted from static-file serving. Future cloud object storage (S3/MinIO) can be introduced via another adapter without altering domain callers.
 
 ### E. Background Analysis Worker
 - **Verdict**: **Approved with staged implementation**.

@@ -28,6 +28,7 @@ out/
 recordings/
 uploads/
 storage/
+backend/storage/
 
 # Environment and secrets
 .env
