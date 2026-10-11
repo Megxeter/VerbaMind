@@ -89,3 +89,38 @@ VERBAMIND follows a modular client-server architecture designed for high reliabi
   - `AccuracyEngine` (Text comparison and alignment)
   - `FluencyModel` (Trained scoring model evaluated on unseen speakers)
 - **Module 5 (`comparison-engine`)**: Delta calculation between attempt $N$ and attempt $N+1$.
+
+---
+
+## 4. Implementation Status (Milestone 1 & Task 2.1)
+
+### A. Completed Work
+1. **Frontend Voice Recording Studio & Audio Player**:
+   - `MediaRecorder` audio capture with WebM Opus encoding and 180s duration limit.
+   - Web Audio API real-time `AnalyserNode` input metering (16-bar animated waveform visualizer).
+   - Audio track lifecycle management with explicit hardware stream release (`track.stop()`).
+   - Exercise catalog (4 technical & HR passages with difficulty tiers and target WPM metrics).
+   - Client-side audio preview player with scrub timeline and local file download.
+   - 19 automated frontend unit/component tests in Vitest passing.
+2. **Backend API Foundation & Health Probe**:
+   - Python 3.12 / FastAPI application initialized and managed via `uv` lockfile.
+   - Centralized typed configuration (`Pydantic BaseSettings`) with strict CORS origin whitelist.
+   - Global exception handling stripping stack traces and sensitive error details from 500 responses.
+   - Health diagnostic probe (`GET /api/health`) returning ISO 8601 UTC timestamp and metadata.
+   - Frontend connectivity status badge with auto-polling and offline fault detection.
+   - 10 automated backend tests in Pytest passing with 0 warnings.
+3. **Private Audio Storage Abstraction**:
+   - `AudioStorageService` ABC and concrete `LocalStorageService` adapter.
+   - Path traversal defenses (`path.is_relative_to` and strict regex session validation `^[a-zA-Z0-9_\-]+$`).
+   - Zero static-file route exposure.
+
+### B. Pending Work (Next Milestones)
+1. **Task 2.2**: Audio upload endpoint (`POST /api/sessions/{session_id}/recording`) with multipart/form-data validation, MIME sniffing, and storage persistence.
+2. **Task 2.3**: Speech-to-Text pipeline integration with OpenAI Whisper (local execution producing word-level start/end timestamps).
+3. **Task 2.4 / Milestone 3**: Acoustic feature extraction (WPM, pause density, pitch variation via Librosa) and reading accuracy scoring (Levenshtein WER alignment).
+4. **Milestone 4**: Interactive timestamp-linked transcript and retry comparison analytics.
+5. **Milestone 5**: Custom fluency ML scoring model trained and evaluated on unseen speakers.
+
+### C. Blocked Work
+- **None currently**. All prerequisites for Task 2.2 audio upload are satisfied.
+
