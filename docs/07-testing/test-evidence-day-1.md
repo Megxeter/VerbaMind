@@ -90,11 +90,88 @@ To maintain scientific integrity and academic rigor, test evidence is strictly c
 
 ## 4. User-Reported Browser Checks (Milestone 1 Voice Capture)
 
-The student completed manual hardware testing in Google Chrome on Windows 11:
-- **Exercise Selection**: Selected "Explaining Distributed Caching & Invalidation"; guidance and target pacing rendered properly.
-- **Microphone Permission**: Browser prompt triggered; granted permission without issue.
-- **Recording**: Captured 45 seconds of speech; visualizer bars animated smoothly with voice volume.
-- **Controls**: Pause, resume, and stop buttons functioned as expected.
-- **Playback & Scrubber**: Listened to audio take without jitter or distortion; seeking worked smoothly.
-- **Download**: Triggered `.webm` file download; local Opus audio file played correctly in external media player.
-- **Microphone Hardware Release**: Browser recording dot disappeared immediately upon clicking "Stop & Review".
+Following rigorous verification guidelines, manual checks are partitioned into confirmed and pending statuses:
+
+### Confirmed Manual Checks
+- **Microphone Capture / Recording**: **CONFIRMED** — Browser acquired microphone consent and successfully streamed user audio chunks into `MediaRecorder`.
+- **Audible Playback**: **CONFIRMED** — Browser preview player successfully mounted and played back captured speech with audible clarity.
+- **Automatic Recording Stop (180s Safety Cap)**: **CONFIRMED** — User verified live that reaching the recording duration safety cap automatically finalizes the take and produces playable audio.
+
+### Pending User Verification (Scheduled for Follow-Up Manual Test)
+- **Exercise Passage Pacing / Selection**: **PENDING** — Selection of specific passage ("Distributed Caching") and verification of WPM target calculation.
+- **Pause & Resume Controls**: **PENDING** — Manual interaction toggling pause and resuming voice take in browser.
+- **Player Scrubber Seeking**: **PENDING** — Scrubbing audio playback head across different timestamps.
+- **Local WebM Download**: **PENDING** — Clicking download button and validating saved `.webm` Opus container in external media player.
+- **Microphone Hardware Indicator Release**: **PENDING** — Verifying operating system / browser tab recording dot immediately turns off upon clicking Stop.
+
+---
+
+## 5. Day 2 Automated Regression Test Evidence (2026-10-12)
+
+### 5.1 Lifecycle Fixes in `useAudioRecorder.ts`
+To resolve critical recording lifecycle issues prior to building upload endpoints:
+1. **Automatic vs Manual Finalisation**: Attached `recorder.onstop` at recorder initialization inside `startRecording()`. Both automatic duration stop (180s cap) and manual `stopRecording()` route through the identical finalisation pipeline, producing playable Object URLs and releasing resources.
+2. **Idempotent Single Finalisation**: Added `isFinalizedRef` and `sessionIdRef` ensuring finalisation occurs exactly once per take, preserves final `ondataavailable` chunks, and clears the timer interval.
+3. **AudioContext Reuse**: Replaced multi-instance instantiation on pause/resume with a single `AudioContext` that suspends on pause and resumes on resume.
+4. **Startup Error Resource Release**: Added cleanup in `startRecording` catch block so any microphone stream acquired before constructor/start exceptions is immediately closed.
+5. **Reset / Unmount State Protection**: Suppressed stale `onstop` callbacks on discarded takes or unmounted components, revoking Object URLs and releasing hardware tracks.
+
+### 5.2 Frontend Vitest Regression Suite
+- **Command**: `npm.cmd test`
+- **Result**: **24 passed / 24 total across 6 test suites (100% PASS)**
+- **Regression Tests in `src/hooks/useAudioRecorder.test.ts`**:
+  - `automatically finalizes recording and releases resources at the 180s limit`: **PASS** (fake timers verify auto-stop, track stop, audio blob generation).
+  - `handles manual stop and repeated stop gracefully`: **PASS** (resolves blob, idempotent on repeated invocations).
+  - `reuses the existing AudioContext during pause and resume without creating duplicate instances`: **PASS** (single AudioContext lifecycle across repeated pause/resume cycles).
+  - `releases acquired microphone tracks if recorder startup throws an error`: **PASS** (tracks stopped when recorder initialization throws).
+  - `discards recording on resetRecording without creating a preview or updating to stopped`: **PASS** (status resets to ready, blob is null).
+  - `cleans up resources and suppresses discarded callbacks on unmount during active recording`: **PASS** (hardware tracks stopped, close called, no URL leaks).
+
+### 5.3 Combined Project Test Totals
+- **Frontend**: 24 tests passed (6 test files)
+- **Backend**: 10 tests passed (4 test files)
+- **Total Automated Tests**: 34 passed / 34 total (100% pass rate)
+- **Static Analysis & Build**: `npm.cmd run build` passed cleanly in 310ms.
+
+---
+
+## 6. Task 2.2 Recording Upload & Persistence Verification Evidence (2026-10-12)
+
+### 6.1 User-Reported Manual Evidence: UI Success State
+- **User Evidence**: User supplied visual confirmation / screenshot verifying:
+  - "Take #1 Uploaded" button state displayed.
+  - Green confirmation banner displayed: *Take #1 Persisted Locally (`take_1.webm`) under session `sess_mv5a58rc_f1c9n`*.
+  - Status confirmed as **MANUAL CHECK PASSED (UI Success State)**.
+
+### 6.2 Backend Private Storage & Container Inspection
+- **Disk Existence**: Confirmed file exists at server-controlled path:
+  `backend/storage/recordings/sess_mv5a58rc_f1c9n/take_1.webm`.
+- **Payload Non-Emptiness**: Byte size on disk is **761,635 bytes** (~743.8 KB), confirming substantive audio capture.
+- **Container Format**: WebM (`audio/webm`), EBML Header with DocType `webm`, MuxingApp `Chrome`.
+- **Audio Codec**: Opus (`A_OPUS`, 48,000 Hz, mono, `OpusHead`).
+- **Detected Audio Duration**:
+  - Parsed 158 EBML clusters spanning timestamp 0 ms to 47,099 ms.
+  - Actual audio duration calculated from packet timecodes: **~47.1 to 47.4 seconds** (~0:47).
+- **Local Decoder Limitation**:
+  - *Note on Decoder Availability*: Neither `ffmpeg`, `ffprobe`, nor Python audio decoding libraries (`mutagen`, `soundfile`, `librosa`) are installed in the system PATH or virtual environment.
+  - In accordance with academic and scientific integrity standards, full acoustic waveform decoding / sample playback inside the local backend Python environment is constrained by the absence of a local Opus decoder binary.
+
+### 6.3 Security, Privacy & Git Hygiene Checks
+- **Zero Filesystem Path Exposure**: Verified response payload contains:
+  `{"session_id": "sess_mv5a58rc_f1c9n", "exercise_id": "tech-distributed-caching", "take_number": 1, "file_id": "take_1.webm", "byte_size": 761635, "mime_type": "audio/webm", "created_at": "...", "status": "uploaded"}`.
+  No server drive letters, absolute directories, or filesystem hierarchies are revealed.
+- **Git Exclusion**: Confirmed via `git check-ignore -v backend/storage/recordings/sess_mv5a58rc_f1c9n/take_1.webm` that the recording is ignored by line 31 of `.gitignore` (`backend/storage/`). No audio files are tracked or staged.
+- **No Static Route**: The storage directory is not exposed as a static web path.
+
+### 6.4 Browser Automation Status
+- **Status**: **UNAVAILABLE / NOT RUN**.
+- **Reason**: Playwright driver binary installation from Microsoft Azure CDN failed with HTTP 404 due to offline sandbox restrictions.
+- **Accreditation**: No automated browser verification pass is claimed. Manual user verification was used exclusively for browser validation.
+
+### 6.5 Automated Test Suite Totals (Post Task 2.2)
+- **Backend (`pytest`)**: 31 passed / 31 total (100% pass rate).
+- **Frontend (`vitest`)**: 33 passed / 33 total (100% pass rate).
+- **Combined Automated Tests**: **64 passed / 64 total** across 13 test suites.
+- **TypeScript Production Build**: Succeeded (`tsc -b && vite build`) in 457ms.
+
+

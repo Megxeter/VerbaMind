@@ -13,6 +13,9 @@ export const App: React.FC = () => {
   const [selectedExercise, setSelectedExercise] = useState<Exercise>(SAMPLE_EXERCISES[0])
   const [takeNumber, setTakeNumber] = useState<number>(1)
   const [isRequestingPermission, setIsRequestingPermission] = useState<boolean>(false)
+  const [sessionId] = useState<string>(
+    () => `sess_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`
+  )
 
   const {
     status,
@@ -127,6 +130,8 @@ export const App: React.FC = () => {
                   audioBlob={audioBlob}
                   mimeType={mimeType}
                   exerciseTitle={selectedExercise.title}
+                  exerciseId={selectedExercise.id}
+                  sessionId={sessionId}
                   takeNumber={takeNumber}
                   onRecordAnotherTake={handleRecordAnotherTake}
                 />

@@ -9,7 +9,7 @@
 ## 1. Global Policies
 
 ### 1.1 CORS Policy
-Cross-Origin Resource Sharing is strictly constrained to prevent CSRF and cross-origin audio data extraction.
+Cross-Origin Resource Sharing is strictly constrained to authorized frontend development origins to prevent unauthorized cross-origin web scripts from reading API responses.
 - **Allowed Origins**:
   - `http://127.0.0.1:5173` (Vite dev server)
   - `http://localhost:5173`
@@ -18,18 +18,27 @@ Cross-Origin Resource Sharing is strictly constrained to prevent CSRF and cross-
 - **Wildcards**: `*` is explicitly prohibited.
 - **Allowed Methods**: `GET`, `POST`, `OPTIONS`.
 - **Allowed Headers**: `Content-Type`, `Authorization`.
+- **Accurate Boundary Definition**: CORS is a browser-enforced mechanism that relaxes or enforces the Same-Origin Policy (SOP). It is **not** caller authentication (non-browser tools such as `curl` or automated clients do not enforce CORS), nor is it a **complete CSRF defense** (simple cross-origin form submissions can still be dispatched across origins without CORS preflights; token-based CSRF protection, SameSite cookie attributes, and session authentication provide complete request defense).
 
 ### 1.2 Error Envelope Standard
-All application errors return a structured JSON object adhering to this schema:
+All application errors return a structured JSON object adhering to this schema (implemented in `backend.core.errors`):
 
 ```json
 {
-  "detail": "Descriptive, client-safe error message",
-  "error_code": "RESOURCE_NOT_FOUND | VALIDATION_ERROR | INTERNAL_SERVER_ERROR",
-  "timestamp": "2026-10-11T17:30:54.271773+00:00"
+  "error": {
+    "code": "HTTP_404 | HTTP_400 | VALIDATION_ERROR | INTERNAL_SERVER_ERROR",
+    "message": "Descriptive, client-safe error message",
+    "details": [
+      {
+        "field": "body -> exercise_id",
+        "issue": "Field required"
+      }
+    ]
+  }
 }
 ```
-*Note: Unhandled 500 internal server errors log the traceback on the server but strip all exception details, database connection strings, and file system paths from the client response.*
+
+*Note: Unhandled 500 internal server errors log the traceback on the server but strip all exception details, database connection strings, and file system paths from the client response, returning code `"INTERNAL_SERVER_ERROR"`.*
 
 ---
 
@@ -64,28 +73,161 @@ Retrieves runtime health and build metadata for service discovery and frontend c
 
 ---
 
-### 2.2 Audio Recording Upload (Upcoming — Task 2.2)
-Accepts user speech recording for a practice session and persists it into the private storage layer.
+### 2.2 Audio Recording Upload (Task 2.2 — Implemented & Verified)
+Accepts user speech recording for a practice session and persists it into the private storage layer using server-controlled paths and atomic writes.
 
 - **Method**: `POST`
 - **Path**: `/api/sessions/{session_id}/recording`
 - **Content-Type**: `multipart/form-data`
+- **Environment & Access Guard**:
+  - Restricted to development mode (`ENVIRONMENT="development"`). In non-development mode, returns `403 Forbidden` (`DEVELOPMENT_ONLY_ENDPOINT`).
+  - Restricted to loopback client hosts (`127.0.0.1`, `::1`, `localhost`). Non-loopback requests return `403 Forbidden` (`FORBIDDEN_ORIGIN`).
+  - *Note*: Production authentication and session ownership checks are scheduled for subsequent milestones.
 - **Path Parameters**:
-  - `session_id` (`string`, regex: `^[a-zA-Z0-9_\-]+$`): Unique session identifier. Path traversal characters (`..`, `/`, `\`) are rejected with `400 Bad Request`.
-- **Form Fields**:
-  - `audio` (`UploadFile`, binary): Audio file payload.
-  - `exercise_id` (`string`, required): Practice passage ID being attempted.
-  - `take_number` (`integer`, optional, default: 1): Practice attempt counter.
-- **Validation Constraints**:
-  - Max file size: 15 MB (15,728,640 bytes). Exceeding uploads return `413 Request Entity Too Large`.
-  - Allowed MIME types: `audio/webm`, `audio/webm;codecs=opus`, `audio/wav`, `audio/mp4`.
-- **Planned 201 Created Response**:
+  - `session_id` (`string`, regex: `^[a-zA-Z0-9_\-]+$`, 1–64 characters): Unique practice session identifier. Traversal sequences (`..`, `/`, `\`) or invalid characters return `400 Bad Request` (`INVALID_SESSION_ID`).
+- **Form Fields (multipart/form-data)**:
+  - `audio` (`UploadFile`, binary, required): Audio recording payload.
+  - `exercise_id` (`string`, regex: `^[a-zA-Z0-9_\-]+$`, required): Practice passage ID being attempted.
+  - `take_number` (`integer`, required, $\ge 1$, default: 1): Practice attempt counter.
+- **Server Validation Pipeline (Independent of Client Headers)**:
+  1. **Non-Empty Check**: Empty payloads (0 bytes) return `400 Bad Request` (`EMPTY_AUDIO_PAYLOAD`).
+  2. **Size Upper Bound**: Payloads $> 15\text{ MB}$ ($15{,}728{,}640$ bytes) return `413 Request Entity Too Large` (`PAYLOAD_TOO_LARGE`).
+  3. **Binary Magic Byte Sniffing**: Does not trust client-supplied filenames or `Content-Type` headers. Inspects binary header:
+     - WebM: EBML header ID `\x1a\x45\xdf\xa3` -> `audio/webm`
+     - Ogg: `OggS` header -> `audio/ogg`
+     - WAV: `RIFF` ... `WAVE` -> `audio/wav`
+     - MP4/M4A: `ftyp` at offset 4 -> `audio/mp4`
+     - Non-matching bytes return `415 Unsupported Media Type` (`UNSUPPORTED_MEDIA_TYPE`).
+  4. **Unintended Overwrite Protection**: If a recording already exists for the given `(session_id, take_number)`, returns `409 Conflict` (`TAKE_ALREADY_EXISTS`).
+  5. **Atomic Write Storage**: Storage adapter writes to an isolated `.tmp` file before atomically replacing (`os.replace`) to prevent partial or corrupted file writes.
+- **Error Responses**:
+  | Status Code | Error Code | Condition |
+  | :--- | :--- | :--- |
+  | `400 Bad Request` | `INVALID_SESSION_ID` | Session ID contains path traversal or invalid characters |
+  | `400 Bad Request` | `INVALID_EXERCISE_ID` | Exercise ID is empty or contains invalid characters |
+  | `400 Bad Request` | `INVALID_TAKE_NUMBER` | Take number is less than 1 |
+  | `400 Bad Request` | `EMPTY_AUDIO_PAYLOAD` | Audio payload byte length is 0 |
+  | `403 Forbidden` | `DEVELOPMENT_ONLY_ENDPOINT` | Attempted upload while running in production environment |
+  | `403 Forbidden` | `FORBIDDEN_ORIGIN` | Attempted upload from non-loopback client host |
+  | `409 Conflict` | `TAKE_ALREADY_EXISTS` | A recording for this session and take number already exists |
+  | `413 Payload Too Large` | `PAYLOAD_TOO_LARGE` | Uploaded audio exceeds 15 MB limit |
+  | `415 Unsupported Media Type` | `UNSUPPORTED_MEDIA_TYPE` | Binary header does not match WebM, WAV, Ogg, or MP4/M4A |
+  | `500 Internal Server Error` | `STORAGE_WRITE_FAILURE` | Storage adapter encountered an I/O failure during persistence |
+
+- **Sample 201 Created Response**:
   ```json
   {
     "session_id": "session_abc123",
+    "exercise_id": "tech-distributed-caching",
+    "take_number": 1,
     "file_id": "take_1.webm",
     "byte_size": 284192,
-    "stored_at": "2026-10-11T17:45:00.000000+00:00",
+    "mime_type": "audio/webm",
+    "created_at": "2026-10-12T13:00:00.000000Z",
     "status": "uploaded"
   }
   ```
+  *(Note: Internal filesystem paths are never exposed in the response payload or client errors.)*
+
+---
+
+### 2.3 Initiate Speech Transcription Job (Task 2.3B)
+Enqueues an offline speech transcription job for an existing persisted audio take using faster-whisper.
+
+- **Method**: `POST`
+- **Path**: `/api/sessions/{session_id}/recordings/{take_number}/transcribe`
+- **Environment & Host Guard**:
+  - Restricted to development mode (`ENVIRONMENT="development"`). In non-development mode, returns `403 Forbidden` (`DEVELOPMENT_ONLY_ENDPOINT`).
+  - Restricted to loopback client hosts (`127.0.0.1`, `::1`, `localhost`, `testclient`). Non-loopback requests return `403 Forbidden` (`FORBIDDEN_ORIGIN`).
+- **Path Parameters**:
+  - `session_id` (`string`, regex: `^[a-zA-Z0-9_\-]+$`, 1–64 characters).
+  - `take_number` (`integer`, $\ge 1$).
+- **Execution Architecture & Limits**:
+  - **Bounded Single Worker**: Dispatches to a single background worker task running outside the FastAPI event loop (`asyncio.to_thread`).
+  - **Bounded Queue**: Queue capacity is strictly capped at 5 pending jobs. If the queue is saturated, returns `503 Service Unavailable` (`TRANSCRIPTION_QUEUE_FULL`).
+  - **Duplicate Job Protection**: If a job for `(session_id, take_number)` is already `queued` or `processing`, returns the existing job status without duplicating inference.
+  - **Completed Cache**: If a completed transcript already exists on disk, returns `200 OK` with the completed result immediately.
+  - **In-Memory Restart Behavior**: Active queued or in-flight jobs reside in memory; they do not survive a server restart. If the server restarts, previously in-flight jobs must be re-requested. Persisted completed transcripts on disk survive restarts.
+- **Error Responses**:
+  | Status Code | Error Code | Condition |
+  | :--- | :--- | :--- |
+  | `400 Bad Request` | `INVALID_SESSION_ID` | Session ID contains path traversal or invalid characters |
+  | `400 Bad Request` | `INVALID_TAKE_NUMBER` | Take number is less than 1 |
+  | `403 Forbidden` | `DEVELOPMENT_ONLY_ENDPOINT` | Non-development environment |
+  | `403 Forbidden` | `FORBIDDEN_ORIGIN` | Non-loopback host origin |
+  | `404 Not Found` | `RECORDING_NOT_FOUND` | No audio recording exists for this session take |
+  | `503 Service Unavailable` | `TRANSCRIPTION_QUEUE_FULL` | Worker queue has reached maximum capacity (5 jobs) |
+
+- **Sample 202 Accepted Response**:
+  ```json
+  {
+    "job_id": "job_sess_123_take_1",
+    "session_id": "sess_123",
+    "take_number": 1,
+    "status": "queued",
+    "created_at": "2026-10-12T13:45:00.000000Z",
+    "error": null
+  }
+  ```
+
+---
+
+### 2.4 Retrieve Transcription Status & Result (Task 2.3B)
+Polls the current status of a transcription job or fetches the completed transcript.
+
+- **Method**: `GET`
+- **Path**: `/api/sessions/{session_id}/recordings/{take_number}/transcript`
+- **Environment & Host Guard**: Same loopback and development guards apply.
+- **Path Parameters**:
+  - `session_id` (`string`, regex: `^[a-zA-Z0-9_\-]+$`, 1–64 characters).
+  - `take_number` (`integer`, $\ge 1$).
+- **Responses**:
+  - `200 OK` (when `queued` or `processing`): Returns current state, `transcript: null`, `error: null`.
+  - `200 OK` (when `completed`): Returns `status: "completed"`, `completed_at`, and structured `transcript` object containing full `text`, `segments`, `words` with timestamps, `language`, `duration_seconds`, and `processing_time_seconds`.
+  - `200 OK` (when `failed`): Returns `status: "failed"`, `transcript: null`, and descriptive `error` message.
+  - `404 Not Found` (`TRANSCRIPT_NOT_FOUND`): Neither an active job nor a saved transcript exists.
+- **Sample 200 Completed Payload**:
+  ```json
+  {
+    "job_id": "job_sess_123_take_1",
+    "session_id": "sess_123",
+    "take_number": 1,
+    "status": "completed",
+    "created_at": "2026-10-12T13:45:00.000000Z",
+    "completed_at": "2026-10-12T13:45:04.688000Z",
+    "transcript": {
+      "text": "Hello and thank you for this opportunity...",
+      "segments": [
+        {
+          "id": 1,
+          "seek": 0,
+          "start": 1.7,
+          "end": 7.26,
+          "text": "Hello and thank you for this opportunity...",
+          "words": [
+            { "word": "Hello", "start": 1.7, "end": 2.4, "probability": 0.594 }
+          ]
+        }
+      ],
+      "language": "en",
+      "language_probability": 1.0,
+      "duration_seconds": 47.16,
+      "processing_time_seconds": 4.688,
+      "model_name": "base.en",
+      "device": "cpu",
+      "compute_type": "int8",
+      "word_count": 96
+    },
+    "error": null
+  }
+  ```
+  *(Note: Zero server paths are returned. Model token probabilities are strictly acoustic metrics, not pronunciation or fluency scores.)*
+
+---
+
+### 2.5 Job Durability, Queue Capacity & Server Restart Behavior
+1. **Queue Capacity**: Development queue bounded at `maxsize = 5`. If 5 jobs are currently queued awaiting execution, subsequent submissions immediately receive `503 Service Unavailable` with `TRANSCRIPTION_QUEUE_FULL`.
+2. **Worker Concurrency**: A single dedicated worker thread executes PyAV audio decoding and Faster-Whisper inference off FastAPI's main async event loop.
+3. **In-Flight Jobs (Restart Limitation)**: `queued` and `processing` jobs are managed in an in-memory `asyncio.Queue` and dictionary. They **do not survive a server process restart**. If the backend server restarts while a job is running or waiting, its memory state is reset. Clients polling will receive `404 Not Found` (`TRANSCRIPT_NOT_FOUND`) and can safely click "Retry Transcription" without losing their audio recording.
+4. **Completed Transcripts (Persisted)**: Transcripts that reach `completed` are written atomically to disk (`transcript_take_{take_number}.json`) inside the private, Git-ignored session recording folder. These persisted transcripts **do survive server restarts** and are immediately returned with `status: completed` upon subsequent queries.
+

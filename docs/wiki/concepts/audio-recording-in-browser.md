@@ -21,7 +21,7 @@ Modern web browsers provide two complementary APIs for interacting with micropho
 
 3. **`AudioContext` & `AnalyserNode`**:
    - Used for live visualizer feedback without interfering with recording.
-   - Extracts fast Fourier transform (FFT) or time-domain data (volume level / root mean square RMS) for reactive waveform or volume meters.
+   - Extracts Fast Fourier Transform (FFT) frequency bin magnitude data (`analyser.getByteFrequencyData()`) for frequency-bin averaging (spectral energy mean across frequency bins), as distinguished from time-domain root mean square (RMS) amplitude calculation.
 
 ---
 
@@ -42,3 +42,12 @@ Handling microphone access gracefully is essential for a smooth user experience:
 - To prevent memory leaks:
   - Revoke object URLs (`URL.revokeObjectURL(url)`) when unmounting components or discarding a take.
   - Close the `AudioContext` and stop all media stream tracks (`track.stop()`) when recording ends or component unmounts.
+
+---
+
+## 4. Recording Lifecycle Invariants (Day 2 Hardening)
+1. **Single Finalisation Seam**: Attach `recorder.onstop` immediately upon creating the recorder. Both manual user stop and the automatic 180-second duration cutoff route through this single finalisation handler, ensuring playable audio blobs and Object URLs are always generated and resources are freed.
+2. **Idempotence & Chunk Completeness**: Guarantee finalisation executes exactly once per session, collects all chunk slices including the trailing slice emitted on `stop()`, and clears interval timers.
+3. **AudioContext Reuse**: Never instantiate new `AudioContext` instances on repeated pause/resume cycles. Suspend the existing context on pause and resume on resume; close only on final stream release.
+4. **Startup Error Track Cleanup**: If `MediaRecorder` instantiation or `start()` throws an exception after `getUserMedia()` has acquired a stream, immediately stop all acquired hardware tracks in the catch block to prevent stuck microphone indicator locks.
+5. **Reset & Unmount Callback Suppression**: Track active session identifiers (`sessionIdRef`) and discarded flags. If `resetRecording()` or component unmount occurs while recording is in flight, suppress asynchronous `onstop` state updates and URL creations, releasing hardware tracks cleanly.

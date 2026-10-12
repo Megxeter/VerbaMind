@@ -15,7 +15,12 @@ class AudioStorageService(ABC):
 
     @abstractmethod
     def save_audio(
-        self, session_id: str, take_number: int, data: bytes, mime_type: str = "audio/webm"
+        self,
+        session_id: str,
+        take_number: int,
+        data: bytes,
+        mime_type: str = "audio/webm",
+        overwrite: bool = False,
     ) -> Path:
         """Store audio payload privately and return the internal file path."""
         pass
@@ -76,8 +81,15 @@ class LocalStorageService(AudioStorageService):
         return session_dir
 
     def save_audio(
-        self, session_id: str, take_number: int, data: bytes, mime_type: str = "audio/webm"
+        self,
+        session_id: str,
+        take_number: int,
+        data: bytes,
+        mime_type: str = "audio/webm",
+        overwrite: bool = False,
     ) -> Path:
+        if len(data) == 0:
+            raise ValueError("Audio payload cannot be empty.")
         if len(data) > settings.MAX_AUDIO_BYTES:
             raise ValueError(
                 f"Audio payload ({len(data)} bytes) exceeds maximum limit of {settings.MAX_AUDIO_BYTES} bytes."
@@ -91,14 +103,29 @@ class LocalStorageService(AudioStorageService):
         extension = self._get_extension(mime_type)
         target_file = session_dir / f"take_{take_number}{extension}"
 
-        # Atomic-like write
-        target_file.write_bytes(data)
+        # Prevent unintended overwrites unless explicitly requested
+        if not overwrite and (target_file.exists() or self.has_audio(session_id, take_number)):
+            raise FileExistsError(
+                f"A recording already exists for session '{session_id}' take {take_number}."
+            )
 
-        # Set restrictive permissions on POSIX systems if supported
+        # Atomic write: write to isolated temp file in session_dir then atomically replace
+        temp_file = session_dir / f".take_{take_number}_{os.urandom(8).hex()}.tmp"
         try:
-            os.chmod(target_file, 0o600)
-        except (AttributeError, OSError):
-            pass  # Windows permissions handled by user folder ACLs
+            temp_file.write_bytes(data)
+            # Set restrictive permissions on POSIX systems if supported
+            try:
+                os.chmod(temp_file, 0o600)
+            except (AttributeError, OSError):
+                pass
+            os.replace(temp_file, target_file)
+        except Exception:
+            if temp_file.exists():
+                try:
+                    temp_file.unlink()
+                except OSError:
+                    pass
+            raise
 
         return target_file
 
@@ -127,3 +154,15 @@ class LocalStorageService(AudioStorageService):
 
     def has_audio(self, session_id: str, take_number: int) -> bool:
         return self.get_audio_path(session_id, take_number) is not None
+
+
+_default_storage_service: Optional[LocalStorageService] = None
+
+
+def get_storage_service() -> AudioStorageService:
+    """Dependency provider returning the configured AudioStorageService."""
+    global _default_storage_service
+    if _default_storage_service is None:
+        _default_storage_service = LocalStorageService()
+    return _default_storage_service
+

@@ -844,6 +844,122 @@ body {
   color: var(--text-primary);
 }
 
+.player-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.btn-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.btn-success-subtle {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  cursor: default;
+}
+
+.spinner-inline {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.upload-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1.15rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.upload-banner-success {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #d1fae5;
+}
+
+.upload-banner-error {
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  color: #ffe4e6;
+}
+
+.upload-banner-icon {
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.upload-banner-success .upload-banner-icon {
+  color: #10b981;
+}
+
+.upload-banner-error .upload-banner-icon {
+  color: #f43f5e;
+}
+
+.upload-banner-content {
+  flex: 1;
+}
+
+.upload-banner-title {
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 0.2rem;
+}
+
+.upload-banner-text {
+  margin: 0 0 0.3rem 0;
+  color: var(--text-secondary);
+  font-size: 0.825rem;
+}
+
+.upload-banner-text code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.15rem 0.35rem;
+  border-radius: var(--radius-sm);
+  color: #a7f3d0;
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+.upload-banner-error .upload-banner-text code {
+  color: #fda4af;
+}
+
+.upload-banner-sub {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.upload-banner-reassurance {
+  font-size: 0.775rem;
+  color: #fda4af;
+}
+
 .player-controls-row {
   display: flex;
   align-items: center;
@@ -888,6 +1004,201 @@ body {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+}
+
+/* Transcription UI Elements */
+.btn-transcribe {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  background: #6366f1;
+  color: #ffffff;
+  border: 1px solid rgba(99, 102, 241, 0.5);
+}
+
+.btn-transcribe:hover:not(:disabled) {
+  background: #4f46e5;
+  transform: translateY(-1px);
+}
+
+.transcribe-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1.15rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.transcribe-banner-queued,
+.transcribe-banner-processing {
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: #e0e7ff;
+}
+
+.transcribe-banner-error {
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  color: #ffe4e6;
+}
+
+.transcript-card {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-md);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  animation: fadeIn 0.3s ease-out;
+}
+
+.transcript-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.75rem;
+}
+
+.transcript-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.transcript-meta-pills {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.transcript-pill {
+  font-size: 0.75rem;
+  font-family: monospace;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.transcript-pill-highlight {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.transcript-text-container {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  border-left: 3px solid #6366f1;
+}
+
+.transcript-text-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+  margin-bottom: 0.4rem;
+  font-weight: 600;
+}
+
+.transcript-recognised-text {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: #f8fafc;
+  margin: 0;
+  font-weight: 450;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.transcript-segments-section {
+  margin-top: 1rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  padding-top: 0.75rem;
+}
+
+.transcript-segments-toggle {
+  background: none;
+  border: none;
+  color: #a5b4fc;
+  font-size: 0.825rem;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 500;
+}
+
+.transcript-segments-toggle:hover {
+  text-decoration: underline;
+}
+
+.transcript-segments-list {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.transcript-segment-row {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+}
+
+.transcript-segment-timestamp {
+  font-family: monospace;
+  font-size: 0.775rem;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  min-width: 85px;
+}
+
+.transcript-segment-content {
+  color: var(--text-secondary);
+  flex-grow: 1;
+}
+
+.transcript-disclaimer-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1rem;
+  font-size: 0.8rem;
+  color: #fde68a;
+  line-height: 1.45;
+  margin-top: 1rem;
+}
+
+.transcript-disclaimer-callout strong {
+  color: #fbbf24;
 }
 
 /* Diagnostic Notice Cards */

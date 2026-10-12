@@ -22,7 +22,11 @@ export interface UseAudioRecorderReturn {
 }
 
 function getSupportedMimeType(): string {
-  if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') {
+  if (
+    typeof window === 'undefined' ||
+    typeof MediaRecorder === 'undefined' ||
+    typeof MediaRecorder.isTypeSupported !== 'function'
+  ) {
     return ''
   }
   const preferredTypes = [
@@ -56,7 +60,17 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const timerIntervalRef = useRef<number | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const animFrameRef = useRef<number | null>(null)
+
+  // Lifecycle guards against stale callbacks and memory leaks
+  const sessionIdRef = useRef<number>(0)
+  const isDiscardedRef = useRef<boolean>(false)
+  const isFinalizedRef = useRef<boolean>(false)
+  const audioUrlRef = useRef<string | null>(null)
+  const audioBlobRef = useRef<Blob | null>(null)
+  const stopResolveRef = useRef<((blob: Blob | null) => void) | null>(null)
+  const stopPromiseRef = useRef<Promise<Blob | null> | null>(null)
 
   // Map browser DOM exceptions to actionable user-friendly errors
   const handleMediaError = useCallback((err: unknown) => {
@@ -97,8 +111,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     setStatus('error')
   }, [])
 
-  // Clean up Web Audio analyser loop
-  const stopAudioLevelAnalysis = useCallback(() => {
+  // Clean up Web Audio animation frame loop
+  const stopAudioAnimationLoop = useCallback(() => {
     if (animFrameRef.current !== null) {
       cancelAnimationFrame(animFrameRef.current)
       animFrameRef.current = null
@@ -106,69 +120,143 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     setAudioLevel(0)
   }, [])
 
-  // Start real-time audio volume analysis for live visualizer
-  const startAudioLevelAnalysis = useCallback((stream: MediaStream) => {
-    try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-      if (!AudioCtx) return
-
-      const audioCtx = new AudioCtx()
-      audioContextRef.current = audioCtx
-      const analyser = audioCtx.createAnalyser()
-      analyser.fftSize = 256
-      analyser.smoothingTimeConstant = 0.6
-      analyserRef.current = analyser
-
-      const source = audioCtx.createMediaStreamSource(stream)
-      source.connect(analyser)
-
-      const bufferLength = analyser.frequencyBinCount
-      const dataArray = new Uint8Array(bufferLength)
-
-      const updateLevel = () => {
-        if (!analyserRef.current) return
-        analyserRef.current.getByteFrequencyData(dataArray)
-
-        let sum = 0
-        for (let i = 0; i < bufferLength; i++) {
-          sum += dataArray[i]
-        }
-        const average = sum / bufferLength
-        // Normalize 0-255 to 0-100 with sensitivity curve
-        const normalized = Math.min(100, Math.round((average / 128) * 100))
-        setAudioLevel(normalized)
-
-        animFrameRef.current = requestAnimationFrame(updateLevel)
-      }
-
-      updateLevel()
-    } catch (e) {
-      console.warn('AudioContext visualization initialization note:', e)
+  // Start the animation frame loop on an active analyser node (frequency-bin averaging)
+  const startAnimationLoop = useCallback((analyser: AnalyserNode) => {
+    if (animFrameRef.current !== null) {
+      cancelAnimationFrame(animFrameRef.current)
+      animFrameRef.current = null
     }
+
+    const bufferLength = analyser.frequencyBinCount
+    const dataArray = new Uint8Array(bufferLength)
+
+    const updateLevel = () => {
+      if (!analyserRef.current) return
+      analyserRef.current.getByteFrequencyData(dataArray)
+
+      let sum = 0
+      for (let i = 0; i < bufferLength; i++) {
+        sum += dataArray[i]
+      }
+      const average = sum / bufferLength
+      // Normalize 0-255 average magnitude to 0-100 scale
+      const normalized = Math.min(100, Math.round((average / 128) * 100))
+      setAudioLevel(normalized)
+
+      animFrameRef.current = requestAnimationFrame(updateLevel)
+    }
+
+    animFrameRef.current = requestAnimationFrame(updateLevel)
   }, [])
 
-  // Release active hardware microphone stream and audio processing nodes
+  // Initialize or resume real-time audio volume analysis without recreating AudioContexts
+  const startAudioLevelAnalysis = useCallback(
+    (stream: MediaStream) => {
+      try {
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+        if (!AudioCtx) return
+
+        let audioCtx = audioContextRef.current
+        if (!audioCtx || audioCtx.state === 'closed') {
+          audioCtx = new AudioCtx()
+          audioContextRef.current = audioCtx
+        } else if (audioCtx.state === 'suspended') {
+          try {
+            const p = audioCtx.resume()
+            if (p && typeof p.catch === 'function') {
+              p.catch(() => {})
+            }
+          } catch {}
+        }
+
+        if (!analyserRef.current) {
+          const analyser = audioCtx.createAnalyser()
+          analyser.fftSize = 256
+          analyser.smoothingTimeConstant = 0.6
+          analyserRef.current = analyser
+
+          const source = audioCtx.createMediaStreamSource(stream)
+          source.connect(analyser)
+          sourceNodeRef.current = source
+        }
+
+        startAnimationLoop(analyserRef.current)
+      } catch (e) {
+        console.warn('AudioContext visualization initialization note:', e)
+      }
+    },
+    [startAnimationLoop]
+  )
+
+  // Pause audio level analysis: suspend AudioContext and cancel RAF, preserving nodes for resume
+  const pauseAudioLevelAnalysis = useCallback(() => {
+    stopAudioAnimationLoop()
+    if (audioContextRef.current && audioContextRef.current.state === 'running') {
+      try {
+        const p = audioContextRef.current.suspend()
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {})
+        }
+      } catch {}
+    }
+  }, [stopAudioAnimationLoop])
+
+  // Resume audio level analysis reusing existing AudioContext
+  const resumeAudioLevelAnalysis = useCallback(() => {
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      try {
+        const p = audioContextRef.current.resume()
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {})
+        }
+      } catch {}
+    }
+    if (analyserRef.current) {
+      startAnimationLoop(analyserRef.current)
+    }
+  }, [startAnimationLoop])
+
+  // Release active hardware microphone stream and close AudioContext
   const releaseStream = useCallback(() => {
-    stopAudioLevelAnalysis()
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close().catch(() => {})
+    stopAudioAnimationLoop()
+
+    if (audioContextRef.current) {
+      if (audioContextRef.current.state !== 'closed') {
+        try {
+          const p = audioContextRef.current.close()
+          if (p && typeof p.catch === 'function') {
+            p.catch(() => {})
+          }
+        } catch {}
+      }
       audioContextRef.current = null
     }
+    analyserRef.current = null
+    sourceNodeRef.current = null
+
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => {
-        try {
-          track.stop()
-        } catch {}
-      })
+      try {
+        const tracks = streamRef.current.getTracks?.()
+        if (Array.isArray(tracks)) {
+          tracks.forEach((track) => {
+            try {
+              track.stop()
+            } catch {}
+          })
+        }
+      } catch {}
       streamRef.current = null
     }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop()
       } catch {}
     }
     mediaRecorderRef.current = null
-  }, [stopAudioLevelAnalysis])
+  }, [stopAudioAnimationLoop])
 
   // Explicitly request user permission
   const requestPermission = useCallback(async (): Promise<boolean> => {
@@ -207,14 +295,22 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
   // Start recording
   const startRecording = useCallback(async () => {
+    const currentSession = ++sessionIdRef.current
+    isDiscardedRef.current = false
+    isFinalizedRef.current = false
+    stopResolveRef.current = null
+    stopPromiseRef.current = null
+
     setError(null)
     chunksRef.current = []
     setElapsedSeconds(0)
 
-    if (audioUrl) {
-      URL.revokeObjectURL(audioUrl)
-      setAudioUrl(null)
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current)
+      audioUrlRef.current = null
     }
+    audioBlobRef.current = null
+    setAudioUrl(null)
     setAudioBlob(null)
     releaseStream()
 
@@ -226,6 +322,17 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
           autoGainControl: true,
         },
       })
+
+      // Abort if unmounted or reset during getUserMedia await
+      if (sessionIdRef.current !== currentSession || isDiscardedRef.current) {
+        stream.getTracks().forEach((t) => {
+          try {
+            t.stop()
+          } catch {}
+        })
+        return
+      }
+
       streamRef.current = stream
       setPermissionState('granted')
 
@@ -241,20 +348,70 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         }
       }
 
+      // Attach finalisation during recorder creation so manual AND automatic stops
+      // both invoke this single finalisation pipeline.
+      recorder.onstop = () => {
+        if (isFinalizedRef.current) return
+        isFinalizedRef.current = true
+
+        if (timerIntervalRef.current !== null) {
+          window.clearInterval(timerIntervalRef.current)
+          timerIntervalRef.current = null
+        }
+
+        // If discarded or session superseded, do not create preview or set state
+        if (isDiscardedRef.current || sessionIdRef.current !== currentSession) {
+          releaseStream()
+          if (stopResolveRef.current) {
+            stopResolveRef.current(null)
+            stopResolveRef.current = null
+          }
+          stopPromiseRef.current = null
+          return
+        }
+
+        const finalType = recorder.mimeType || getSupportedMimeType() || 'audio/webm'
+        const blob = new Blob(chunksRef.current, { type: finalType })
+
+        if (audioUrlRef.current) {
+          URL.revokeObjectURL(audioUrlRef.current)
+          audioUrlRef.current = null
+        }
+        const url = URL.createObjectURL(blob)
+        audioUrlRef.current = url
+        audioBlobRef.current = blob
+
+        setAudioBlob(blob)
+        setAudioUrl(url)
+        setStatus('stopped')
+        releaseStream()
+
+        if (stopResolveRef.current) {
+          stopResolveRef.current(blob)
+          stopResolveRef.current = null
+        }
+        stopPromiseRef.current = null
+      }
+
       recorder.start(250) // Emit slice every 250ms for reliable chunking
       setStatus('recording')
       startAudioLevelAnalysis(stream)
 
-      // Start elapsed timer
+      // Start elapsed timer with 180s automatic cap
       if (timerIntervalRef.current !== null) {
         window.clearInterval(timerIntervalRef.current)
       }
       timerIntervalRef.current = window.setInterval(() => {
         setElapsedSeconds((prev) => {
           if (prev + 1 >= MAX_RECORDING_SECONDS) {
-            // Hit max cap: auto-stop
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-              mediaRecorderRef.current.stop()
+            if (timerIntervalRef.current !== null) {
+              window.clearInterval(timerIntervalRef.current)
+              timerIntervalRef.current = null
+            }
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+              try {
+                mediaRecorderRef.current.stop()
+              } catch {}
             }
             return MAX_RECORDING_SECONDS
           }
@@ -262,36 +419,50 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         })
       }, 1000)
     } catch (err) {
+      // Ensure any acquired microphone tracks are released if recorder init/start fails
+      releaseStream()
       handleMediaError(err)
     }
-  }, [audioUrl, handleMediaError, startAudioLevelAnalysis])
+  }, [handleMediaError, releaseStream, startAudioLevelAnalysis])
 
   // Pause recording
   const pauseRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.pause()
+      try {
+        mediaRecorderRef.current.pause()
+      } catch {}
       setStatus('paused')
       if (timerIntervalRef.current !== null) {
         window.clearInterval(timerIntervalRef.current)
         timerIntervalRef.current = null
       }
-      stopAudioLevelAnalysis()
+      pauseAudioLevelAnalysis()
     }
-  }, [stopAudioLevelAnalysis])
+  }, [pauseAudioLevelAnalysis])
 
   // Resume recording
   const resumeRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
-      mediaRecorderRef.current.resume()
+      try {
+        mediaRecorderRef.current.resume()
+      } catch {}
       setStatus('recording')
-      if (streamRef.current) {
-        startAudioLevelAnalysis(streamRef.current)
+      resumeAudioLevelAnalysis()
+
+      if (timerIntervalRef.current !== null) {
+        window.clearInterval(timerIntervalRef.current)
       }
       timerIntervalRef.current = window.setInterval(() => {
         setElapsedSeconds((prev) => {
           if (prev + 1 >= MAX_RECORDING_SECONDS) {
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-              mediaRecorderRef.current.stop()
+            if (timerIntervalRef.current !== null) {
+              window.clearInterval(timerIntervalRef.current)
+              timerIntervalRef.current = null
+            }
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+              try {
+                mediaRecorderRef.current.stop()
+              } catch {}
             }
             return MAX_RECORDING_SECONDS
           }
@@ -299,71 +470,95 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         })
       }, 1000)
     }
-  }, [startAudioLevelAnalysis])
+  }, [resumeAudioLevelAnalysis])
 
-  // Stop recording
+  // Stop recording: supports manual stop and handles repeated invocations gracefully
   const stopRecording = useCallback((): Promise<Blob | null> => {
-    return new Promise((resolve) => {
-      if (timerIntervalRef.current !== null) {
-        window.clearInterval(timerIntervalRef.current)
-        timerIntervalRef.current = null
-      }
+    if (stopPromiseRef.current) {
+      return stopPromiseRef.current
+    }
 
-      const recorder = mediaRecorderRef.current
-      if (!recorder || recorder.state === 'inactive') {
-        releaseStream()
-        setStatus('stopped')
-        resolve(null)
-        return
-      }
-
-      recorder.onstop = () => {
-        const finalType = recorder.mimeType || getSupportedMimeType() || 'audio/webm'
-        const blob = new Blob(chunksRef.current, { type: finalType })
-        const url = URL.createObjectURL(blob)
-
-        setAudioBlob(blob)
-        setAudioUrl(url)
-        setStatus('stopped')
-        releaseStream()
-        resolve(blob)
-      }
-
-      recorder.stop()
-    })
-  }, [releaseStream])
-
-  // Reset/discard current take
-  const resetRecording = useCallback(() => {
     if (timerIntervalRef.current !== null) {
       window.clearInterval(timerIntervalRef.current)
       timerIntervalRef.current = null
     }
-    if (audioUrl) {
-      URL.revokeObjectURL(audioUrl)
+
+    const recorder = mediaRecorderRef.current
+    if (!recorder || recorder.state === 'inactive') {
+      releaseStream()
+      if (status !== 'stopped') {
+        setStatus('stopped')
+      }
+      return Promise.resolve(audioBlobRef.current)
+    }
+
+    const promise = new Promise<Blob | null>((resolve) => {
+      stopResolveRef.current = resolve
+      try {
+        recorder.stop()
+      } catch {
+        releaseStream()
+        setStatus('stopped')
+        resolve(null)
+      }
+    })
+
+    stopPromiseRef.current = promise
+    return promise
+  }, [releaseStream, status])
+
+  // Reset/discard current take
+  const resetRecording = useCallback(() => {
+    isDiscardedRef.current = true
+    sessionIdRef.current++
+
+    if (timerIntervalRef.current !== null) {
+      window.clearInterval(timerIntervalRef.current)
+      timerIntervalRef.current = null
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current)
+      audioUrlRef.current = null
     }
     releaseStream()
     chunksRef.current = []
+    audioBlobRef.current = null
     setAudioBlob(null)
     setAudioUrl(null)
     setElapsedSeconds(0)
     setAudioLevel(0)
     setError(null)
     setStatus('ready')
-  }, [audioUrl, releaseStream])
+
+    if (stopResolveRef.current) {
+      stopResolveRef.current(null)
+      stopResolveRef.current = null
+    }
+    stopPromiseRef.current = null
+  }, [releaseStream])
 
   // Cleanup on component unmount
   useEffect(() => {
     return () => {
+      isDiscardedRef.current = true
+      sessionIdRef.current++
+
       if (timerIntervalRef.current !== null) {
         window.clearInterval(timerIntervalRef.current)
+        timerIntervalRef.current = null
       }
       releaseStream()
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl)
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current)
+        audioUrlRef.current = null
       }
+      if (stopResolveRef.current) {
+        stopResolveRef.current(null)
+        stopResolveRef.current = null
+      }
+      stopPromiseRef.current = null
     }
-  }, [audioUrl, releaseStream])
+  }, [releaseStream])
 
   return {
     status,
@@ -383,3 +578,4 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     resetRecording,
   }
 }
+

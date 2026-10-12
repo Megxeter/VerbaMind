@@ -1,0 +1,1 @@
+# VERBAMIND CLI utilities package

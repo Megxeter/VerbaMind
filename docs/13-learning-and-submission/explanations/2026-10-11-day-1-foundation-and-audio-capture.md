@@ -14,7 +14,7 @@
    - [3.1 Practice Passage Catalog](#31-practice-passage-catalog)
    - [3.2 Hardware Permission Lifecycle](#32-hardware-permission-lifecycle)
    - [3.3 MediaRecorder & Opus Chunk Buffering](#33-mediarecorder--opus-chunk-buffering)
-   - [3.4 Real-Time Web Audio RMS Metering](#34-real-time-web-audio-rms-metering)
+   - [3.4 Real-Time Web Audio Frequency-Bin Averaging](#34-real-time-web-audio-frequency-bin-averaging)
    - [3.5 Resource Teardown & Hardware Lock Release](#35-resource-teardown--hardware-lock-release)
    - [3.6 Audio Playback & Scrubber Controls](#36-audio-playback--scrubber-controls)
 4. [Backend Foundation & Network Architecture](#4-backend-foundation--network-architecture)
@@ -166,8 +166,8 @@ const audioUrl = URL.createObjectURL(audioBlob);
 ```
 4. `URL.createObjectURL(audioBlob)` generates a synthetic URI (e.g., `blob:http://localhost:5173/5c50593d...`) enabling `<audio>` elements to stream the audio directly from memory.
 
-### 3.4 Real-Time Web Audio RMS Metering
-To provide visual feedback without lag, we attach the live `MediaStream` to the Web Audio API:
+### 3.4 Real-Time Web Audio Frequency-Bin Averaging
+To provide responsive visual feedback without main-thread stutter, we route the live `MediaStream` into the Web Audio API:
 ```typescript
 const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
 const source = audioContext.createMediaStreamSource(stream);
@@ -180,7 +180,7 @@ Inside a `requestAnimationFrame` loop:
 const buffer = new Uint8Array(analyser.frequencyBinCount);
 analyser.getByteFrequencyData(buffer);
 
-// Compute average energy across frequencies
+// Compute arithmetic mean magnitude across frequency bins
 let sum = 0;
 for (let i = 0; i < buffer.length; i++) {
   sum += buffer[i];
@@ -188,7 +188,14 @@ for (let i = 0; i < buffer.length; i++) {
 const average = sum / buffer.length;
 const normalizedVolume = Math.min(100, Math.round((average / 128) * 100));
 ```
-This produces a smooth 0–100 integer passed to [`AudioVisualizer.tsx`](file:///c:/Users/yasir/OneDrive/Desktop/VERBA%20MIND/frontend/src/components/AudioVisualizer.tsx), driving 16 animated waveform bars at 60 FPS with minimal CPU impact.
+#### Technical Clarification: Frequency-Bin Averaging vs. Root Mean Square (RMS)
+It is crucial to note that this visualizer computation is **frequency-bin averaging**, not RMS:
+- **Frequency-Bin Averaging**: Extracts spectral magnitude bins $M_k \in [0, 255]$ from the Fast Fourier Transform (FFT) output via `analyser.getByteFrequencyData()`. It averages these magnitude bins ($\bar{M} = \frac{1}{K}\sum_{k=0}^{K-1} M_k$) and scales linearly to $0\text{–}100$. This reflects the spectral spread of human speech energy across the 128 bins ($0\text{ to }\approx 24\text{ kHz}$) and is computationally negligible at 60 FPS.
+- **Root Mean Square (RMS)**: Calculated strictly in the **time domain** on raw PCM instantaneous pressure amplitudes $x_i$:
+  $$\text{RMS} = \sqrt{\frac{1}{N}\sum_{i=1}^N x_i^2}$$
+  RMS measures overall physical electrical/acoustic power, requires `getByteTimeDomainData` or `getFloatTimeDomainData`, and involves square-root operations.
+
+Our visualizer deliberately employs frequency-bin averaging because it directly captures vocal formant activity across conversational frequency bands while minimizing per-frame CPU load.
 
 ### 3.5 Resource Teardown & Hardware Lock Release
 A common bug in voice web applications is leaving the microphone stream active after recording ends, draining the user's battery and triggering browser privacy warnings.
@@ -293,25 +300,58 @@ app.add_middleware(
   - `http://localhost:5173`
   - `http://127.0.0.1:4173`
   - `http://localhost:4173`
-- **Security Rule**: Wildcards (`*`) are explicitly avoided. This ensures unauthorized third-party origins cannot query local development endpoints or read user audio streams.
-- **Limitations of CORS**: CORS is enforced solely by browsers; non-browser tools (e.g. `curl`, `Postman`, Python scripts) do not enforce CORS headers. Additional authentication and authorization layers will be introduced in subsequent milestones.
+- **Security Rule**: Wildcards (`*`) are explicitly avoided. This ensures unauthorized third-party origins cannot instruct a user's browser to read local development endpoints or exfiltrate private audio streams.
+- **Accurate Boundaries & Limitations of CORS**:
+  - **CORS is NOT Authentication**: CORS is enforced strictly by browsers to restrict cross-origin JavaScript reads under the Same-Origin Policy. Non-browser clients (such as `curl`, Postman, or automated Python scripts) do not enforce CORS headers and can contact API endpoints directly.
+  - **CORS is NOT a Complete CSRF Defense**: Simple cross-origin requests (such as standard HTML form submissions) do not trigger preflight `OPTIONS` checks and can still reach the server. True CSRF defense requires anti-CSRF tokens, SameSite cookie policies, and origin/referer verification on state-changing operations.
 
 ### 4.4 Sanitized Exception Envelopes
 Configured in [`backend/src/backend/core/errors.py`](file:///c:/Users/yasir/OneDrive/Desktop/VERBA%20MIND/backend/src/backend/core/errors.py):
 ```python
-async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled server error: %s", exc)
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     return JSONResponse(
-        status_code=500,
+        status_code=exc.status_code,
         content={
-            "detail": "An internal server error occurred.",
-            "error_code": "INTERNAL_SERVER_ERROR",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": {
+                "code": f"HTTP_{exc.status_code}",
+                "message": exc.detail if isinstance(exc.detail, str) else "Request error",
+            }
+        },
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    simplified_errors = [
+        {"field": " -> ".join(str(i) for i in err.get("loc", [])), "issue": err.get("msg", "Invalid parameter")}
+        for err in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "The request payload failed validation.",
+                "details": simplified_errors,
+            }
+        },
+    )
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.error("Unhandled server exception: %s", exc, exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": {
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": "An unexpected error occurred. Please try again later.",
+            }
         },
     )
 ```
 - **Zero Information Leakage**: Prevents internal system details (e.g., database connection strings, local absolute file paths, Python tracebacks) from being exposed to the client in production responses.
-- Registered against `StarletteHTTPException` (404), `RequestValidationError` (422), and base `Exception` (500).
+- Registered against `StarletteHTTPException` (404/400), `RequestValidationError` (422), and base `Exception` (500).
 
 ---
 
@@ -400,23 +440,23 @@ In VERBAMIND:
 > **Answer**: `MediaRecorder` is the standardized browser API for local media stream capture and encoding. It compresses raw audio into efficient containers (WebM/Opus) directly in browser memory and emits chunks asynchronously. WebRTC is designed for low-latency peer-to-peer live teleconferencing across a network, which requires ICE servers, STUN/TURN, and SDP signaling. Using WebRTC for single-user recording would introduce unnecessary network overhead and architectural complexity.
 
 ### Q2: How does your audio visualizer compute volume levels in real time?
-> **Answer**: We route the active `MediaStream` into a Web Audio `AudioContext` and connect it to an `AnalyserNode`. Using Fast Fourier Transform (FFT) analysis with an `fftSize` of 256, we extract frequency bin data into a `Uint8Array`. By calculating the average energy across the bins and normalizing it to a 0–100 scale on every `requestAnimationFrame`, we achieve a smooth 60 FPS reactive waveform with minimal main-thread CPU overhead.
+> **Answer**: We route the active `MediaStream` into a Web Audio `AudioContext` and connect it to an `AnalyserNode`. Using Fast Fourier Transform (FFT) analysis with an `fftSize` of 256, we extract frequency bin data into a `Uint8Array`. By calculating the arithmetic mean magnitude across the frequency bins (frequency-bin averaging) and normalizing it onto a 0–100 scale on every `requestAnimationFrame`, we achieve a smooth 60 FPS reactive waveform with minimal main-thread CPU overhead. Note that this is frequency-bin averaging across spectral bins, not time-domain root mean square (RMS) amplitude calculation.
 
 ### Q3: How do you guarantee the microphone does not stay active after the user clicks Stop?
 > **Answer**: In our `useAudioRecorder` hook, the `releaseStream()` function loops over all audio tracks in the `MediaStream` (`stream.getTracks()`) and calls `track.stop()`. It also closes the Web Audio `AudioContext` and cancels the animation frame request. Calling `track.stop()` explicitly releases the hardware lock at the operating system level, which clears the browser's recording indicator.
 
 ### Q4: Why must acoustic fluency be separated from reading accuracy and pronunciation?
-> **Answer**: Conflating these three dimensions is a common flaw in naive speech evaluation tools:
-> - **Acoustic Fluency**: Measures temporal pacing, pause frequency, and speech rate (WPM).
-> - **Reading Accuracy**: Measures textual alignment and Word Error Rate (WER).
-> - **Pronunciation**: Measures phonetic clarity at the phoneme level.
-> A speaker might read a passage with 100% textual accuracy (pronouncing every word correctly) but speak at an unnaturally slow 50 WPM with long awkward silences. Conversely, an articulate speaker might speak fluidly at 135 WPM but mispronounce a single technical term. Keeping these dimensions separate ensures diagnostic feedback is clear and actionable.
+> **Answer**: Conflating these three dimensions is a fundamental flaw in naive speech evaluation tools:
+> - **Acoustic Fluency**: Measures temporal rhythm, speaking rate (WPM), articulation rate, and pause distribution.
+> - **Reading Accuracy**: Measures lexical fidelity against the reference text via Word Error Rate (WER).
+> - **Pronunciation**: Measures phonetic intelligibility at the individual phoneme level (e.g. Goodness of Pronunciation GoP).
+> **Critical Academic Invariant: Reading accuracy does NOT establish pronunciation**. A candidate reading aloud can achieve 100% Reading Accuracy (0% WER) by speaking every word in the script, yet pronounce phonemes incorrectly, misplace stress, or speak with unintelligible phonetics. Conversely, an ASR transcript might decode a word correctly despite flawed phonetic execution. Decoupling acoustic cadence, textual accuracy, and phonetic clarity is mandatory for scientifically sound diagnostic feedback.
 
 ### Q5: What was the Starlette test warning you encountered, and how did you resolve it?
 > **Answer**: When running pytest, Starlette 1.7.0 emitted `StarletteDeprecationWarning: Using 'httpx' with 'starlette.testclient' is deprecated; install 'httpx2' instead.` Starlette's `TestClient` recently introduced an internal preference for `httpx2`. Rather than suppressing the warning via pytest flags, we resolved it at the dependency level by adding `httpx2` to our development dependencies in `pyproject.toml`. Pytest now passes with 0 warnings.
 
 ### Q6: Why did you avoid wildcard CORS (`allow_origins=["*"]`)?
-> **Answer**: A wildcard origin permits any website loaded in the user's browser to make credentialed requests to our API. Since our backend will handle private user audio recordings, an unrestricted CORS policy could leave endpoints vulnerable to Cross-Origin Read and CSRF-style data extraction. We explicitly whitelist only the exact local development origins (`http://127.0.0.1:5173`).
+> **Answer**: A wildcard origin permits any arbitrary website loaded in a user's browser to read responses from our API endpoints. Since our backend will manage private user audio recordings, allowing unauthorized origins could enable malicious web pages to exfiltrate session data or read audio payloads. We explicitly restrict origins to our exact local frontend (`http://127.0.0.1:5173`). However, we recognize that **CORS is neither authentication nor a complete CSRF defense**: it only restricts browser-based JavaScript cross-origin response reading, does not protect against non-browser clients (such as curl or scripts), and does not block simple cross-origin form submissions. Full security requires dedicated authentication tokens, SameSite cookie attributes, and session authorization.
 
 ### Q7: How does your backend prevent Directory Traversal attacks in audio storage?
 > **Answer**: Our `LocalStorageService` applies defense-in-depth:

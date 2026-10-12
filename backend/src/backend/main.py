@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.v1.api import api_router
 from backend.core.config import settings
 from backend.core.errors import register_error_handlers
+from backend.services.transcription_worker import get_worker_manager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,9 +20,11 @@ logger = logging.getLogger("verbamind.api")
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Lifespan event handler for backend startup and shutdown tasks."""
     logger.info("Initializing VERBAMIND API (Environment: %s)...", settings.ENVIRONMENT)
-    # Ensure private storage directory exists upon startup
     settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    worker_manager = get_worker_manager()
+    await worker_manager.start()
     yield
+    await worker_manager.stop()
     logger.info("Shutting down VERBAMIND API.")
 
 

@@ -22,6 +22,11 @@ In computer-assisted language learning (CALL) and automated speaking assessment,
   $$\text{WER} = \frac{S + D + I}{N}$$
   where $S$ is substitutions, $D$ is deletions (skipped words), $I$ is insertions (added words), and $N$ is reference word count.
 - **Scope**: Applied exclusively to Read-Aloud exercises where a canonical ground truth text exists. Not applicable to spontaneous topic speaking or interview answers.
+- **Critical Distinction: Reading Accuracy Does NOT Establish Pronunciation**:
+  - Reading accuracy verifies **lexical selection** (whether the candidate vocalized the target word sequence without omitting, inserting, or substituting words).
+  - A candidate can achieve **100% Reading Accuracy ($\text{WER} = 0$)** by correctly reading every word on the page, while simultaneously pronouncing multiple phonemes incorrectly (e.g. pronouncing silent letters, vowel shifts, voicing errors, or misplacing lexical stress).
+  - Conversely, an automatic speech recognition (ASR) decoder might successfully transcribe an intended word despite severe phonetic degradation, or mis-transcribe an intelligible word due to acoustic model language bias.
+  - Therefore, reading accuracy and pronunciation must be measured via decoupled, independent models.
 
 ---
 
@@ -30,6 +35,7 @@ In computer-assisted language learning (CALL) and automated speaking assessment,
 - **Evaluation Mechanism**: Goodness of Pronunciation (GoP) scores derived from acoustic models:
   $$\text{GoP}(p) = \frac{1}{|t_e - t_s|} \log \frac{P(O_{t_s:t_e} | p)}{\sum_q P(O_{t_s:t_e} | q)}$$
 - **Distinction from Accent**: Accent refers to regional phonological patterns; pronunciation refers to intelligible enunciation that does not impede comprehension.
+- **Independence from Reading Accuracy**: Evaluated on phoneme posterior log-likelihoods rather than word token string equality.
 
 ---
 
