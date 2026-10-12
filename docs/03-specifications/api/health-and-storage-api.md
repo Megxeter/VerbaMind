@@ -231,3 +231,86 @@ Polls the current status of a transcription job or fetches the completed transcr
 3. **In-Flight Jobs (Restart Limitation)**: `queued` and `processing` jobs are managed in an in-memory `asyncio.Queue` and dictionary. They **do not survive a server process restart**. If the backend server restarts while a job is running or waiting, its memory state is reset. Clients polling will receive `404 Not Found` (`TRANSCRIPT_NOT_FOUND`) and can safely click "Retry Transcription" without losing their audio recording.
 4. **Completed Transcripts (Persisted)**: Transcripts that reach `completed` are written atomically to disk (`transcript_take_{take_number}.json`) inside the private, Git-ignored session recording folder. These persisted transcripts **do survive server restarts** and are immediately returned with `status: completed` upon subsequent queries.
 
+---
+
+### 2.6 Analyze Speech Delivery Acoustics (Day 3 Increment 7 — Implemented & Verified)
+Executes local audio acoustic rhythm and pause analysis on a persisted recording take, returning duration, speech-active duration, speech-activity percentage, leading/trailing silence, internal non-speech gaps ($\ge 250\text{ ms}$), and speaking/articulation rate (WPM).
+
+- **Method**: `POST`
+- **Path**: `/api/sessions/{session_id}/recordings/{take_number}/acoustics`
+- **Environment & Host Guard**:
+  - Restricted to development mode (`ENVIRONMENT="development"`). Non-dev mode returns `403 Forbidden` (`DEVELOPMENT_ONLY_ENDPOINT`).
+  - Restricted to loopback client hosts (`127.0.0.1`, `::1`, `localhost`, `testclient`). Non-loopback requests return `403 Forbidden` (`FORBIDDEN_ORIGIN`).
+- **Path Parameters**:
+  - `session_id` (`string`, regex: `^[a-zA-Z0-9_\-]+$`, 1–64 characters). Traversal sequences (`..`, `/`, `\`) return `400 Bad Request` (`INVALID_SESSION_ID`).
+  - `take_number` (`integer`, $\ge 1$).
+- **Processing Architecture**:
+  - Offloaded off FastAPI's main async event loop via `asyncio.to_thread` to prevent blocking concurrent API requests.
+  - Decodes audio in memory using PyAV (`16 kHz`, mono, 16-bit float).
+  - Energy RMS frame analysis: 25ms frame window ($N=400$), 10ms frame hop ($H=160$), calibrated threshold at $-40\text{ dBFS}$ with $150\text{ ms}$ hangover window smoothing.
+  - Automatically loads persisted transcript if available (`transcript_take_{take_number}.json`) to compute estimated words per minute (WPM).
+  - Persists analysis result to disk atomically at `acoustics_take_{take_number}.json` in the private, Git-ignored session recording directory.
+- **Error Responses**:
+  | Status Code | Error Code | Condition |
+  | :--- | :--- | :--- |
+  | `400 Bad Request` | `INVALID_SESSION_ID` | Session ID contains path traversal or invalid characters |
+  | `400 Bad Request` | `INVALID_TAKE_NUMBER` | Take number is less than 1 |
+  | `403 Forbidden` | `DEVELOPMENT_ONLY_ENDPOINT` | Attempted analysis while running in non-development environment |
+  | `403 Forbidden` | `FORBIDDEN_ORIGIN` | Attempted analysis from non-loopback client host |
+  | `404 Not Found` | `RECORDING_NOT_FOUND` | No audio recording exists for the specified session and take number |
+  | `500 Internal Server Error` | `ACOUSTIC_ANALYSIS_FAILED` | PyAV decoding or acoustic processing failure |
+
+- **Sample 200 OK Response**:
+  ```json
+  {
+    "session_id": "session_abc123",
+    "take_number": 1,
+    "status": "completed",
+    "measurements": {
+      "recording_duration_seconds": 47.16,
+      "speech_active_duration_seconds": 41.02,
+      "speech_activity_ratio": 0.8698,
+      "speech_activity_percentage": 86.98,
+      "leading_silence_seconds": 0.44,
+      "trailing_silence_seconds": 0.70,
+      "internal_gap_count": 2,
+      "total_internal_gap_duration_seconds": 1.62,
+      "mean_internal_gap_duration_seconds": 0.81,
+      "internal_gaps": [
+        {
+          "start_seconds": 12.40,
+          "end_seconds": 13.34,
+          "duration_seconds": 0.94
+        },
+        {
+          "start_seconds": 28.10,
+          "end_seconds": 28.78,
+          "duration_seconds": 0.68
+        }
+      ],
+      "transcript_word_count": 96,
+      "words_per_minute": 122.14,
+      "articulation_wpm": 140.42,
+      "threshold_db": -40.0,
+      "frame_duration_ms": 25.0,
+      "frame_hop_ms": 10.0,
+      "min_gap_duration_ms": 250.0,
+      "hangover_duration_ms": 150.0
+    },
+    "analyzed_at": "2026-10-12T19:40:00.000000Z"
+  }
+  ```
+
+---
+
+### 2.7 Retrieve Persisted Delivery Acoustics
+Retrieves previously computed acoustic measurements from disk cache without re-decoding audio.
+
+- **Method**: `GET`
+- **Path**: `/api/sessions/{session_id}/recordings/{take_number}/acoustics`
+- **Environment & Host Guard**: Same loopback and development-only restrictions apply.
+- **Responses**:
+  - `200 OK`: Returns the JSON payload identical to section 2.6.
+  - `404 Not Found`: If no acoustic analysis has yet been run for this take (`ACOUSTICS_NOT_FOUND`).
+
+

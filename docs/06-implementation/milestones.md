@@ -9,7 +9,7 @@ Audio Capture & Playback      FastAPI & STT   Evidence Feedback  Fluency Model  
 
 ---
 
-## Milestone 1: Voice Capture, Exercises & Playback (Current)
+## Milestone 1: Voice Capture, Exercises & Playback (Completed)
 **Goal**: Build a complete, resilient client-side browser recording loop with exercise selection, microphone permission management, real-time timer/visualizer, and playback.
 
 - [x] Exercise catalog with diverse difficulty tiers and guidance parameters.
@@ -23,22 +23,25 @@ Audio Capture & Playback      FastAPI & STT   Evidence Feedback  Fluency Model  
 
 ---
 
-## Milestone 2: Backend Scaffold, Upload API & STT Pipeline
-**Goal**: FastAPI backend, private audio storage, Whisper transcription with word timestamps.
-- [ ] Scaffold FastAPI backend with `uv`.
-- [ ] Implement `POST /api/exercises/` and `GET /api/exercises/`.
-- [ ] Implement `POST /api/sessions/{id}/recording` with validation (mime type, size cap, duration).
-- [ ] Whisper STT integration generating word timestamps `(word, start_ms, end_ms)`.
-- [ ] Local private audio storage manager.
+## Milestone 2: Backend Scaffold, Upload API & STT Pipeline (Verified Core / Benchmark Calibration Active)
+**Goal**: FastAPI backend, private audio storage, Whisper transcription with word timestamps, and model evaluation.
+- [x] Scaffold FastAPI backend with `uv` and strict loopback/CORS boundaries.
+- [x] Implement `POST /api/sessions/{session_id}/recordings/{take_number}` with validation (mime type, size cap, duration).
+- [x] Local private audio storage manager (`storage/recordings/{session_id}/take_{n}.webm`).
+- [x] Whisper offline STT service with PyAV decoding and word-level timestamps (`word`, `start`, `end`, `probability`).
+- [x] Bounded asynchronous worker queue (`transcription_worker.py`) with memory deduplication.
+- [x] Full-stack browser integration: upload and offline transcription rendered with Academic Integrity Notice.
+- [x] Offline model comparison tooling (`base.en` vs `small.en`) with Levenshtein alignment.
+- [ ] Multi-recording ASR benchmark calibration on 3 recordings with verified human ground truth (Pending user-verified reference transcripts).
 
 ---
 
-## Milestone 3: Acoustic Metrics & Evidence-Linked Feedback
-**Goal**: Pause detection, filler word counting, speaking pace calculation, and interactive transcript.
-- [ ] Speaking pace (WPM / Syllables per second).
-- [ ] Silent pauses (> 250ms) and filled pauses (`um`, `uh`).
-- [ ] Synchronized transcript player linked to audio playback.
-- [ ] Retry comparison view (Take 1 vs Take 2 deltas).
+## Milestone 3: Acoustic Metrics & Evidence-Linked Feedback (In Progress)
+**Goal**: Decoded audio acoustic analysis, speech activity ratio, internal non-speech gaps, speaking pace calculation, clickable gap seeking, and interactive feedback.
+- [x] Acoustic analysis module & delivery panel: decoded audio timing, speech activity ratio, leading/trailing silence separation, internal non-speech gaps (≥ 250ms), clickable gap seeking, transcript-derived WPM, and frontend Audio Delivery Measurements panel with stale-take guards. (Implemented & User-Verified)
+- [x] Synchronized interactive transcript player linked to audio playback with word-seeking, real-time playback highlighting, segment fallback, and approximate alignment notice. (Implemented & User-Verified)
+- [ ] Acoustic pause thresholding & filled pause detection (`um`, `uh`). (Deferred to future increment)
+- [ ] Retry comparison view (Take 1 vs Take 2 deltas). (Planned Phase 3)
 
 ---
 

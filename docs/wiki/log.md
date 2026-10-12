@@ -86,6 +86,70 @@ This append-only log tracks every ingest, synthesis, and architectural milestone
   - `small.en`: 9.82s CPU inference (RTF 0.208x); successfully resolved `"Yasir"` and `"final year"`, and emitted phonetic approximation `"verbal mind"`.
 - Established strict academic protocol: reference transcripts kept private and separated from inference; zero prompt biasing; ASR recognition errors must never be inferred as pronunciation defects.
 
+## [2026-10-13] milestone-3 | Day 3: ASR Benchmark Calibration Hardening & Acoustic Analysis Engine
+- Reconciled milestone status and updated stale milestones checklist in `docs/06-implementation/milestones.md`.
+- Hardened `compare_models.py` with edge case handling:
+  - Empty-reference returns `wer: None` (explicitly undefined, division by zero avoided).
+  - Missing reference file raises clear `FileNotFoundError`.
+  - Added `compute_aggregate_wer` computing corpus-level aggregate WER while strictly excluding empty-reference files.
+- Identified 3 private user recordings in `backend/storage/recordings/` (`take_1.webm`, `take_2.webm`, `take_3.webm`), ran offline comparison on both models, preserved raw outputs and RTF in private JSON files, and formulated playback instructions requesting manual ground truth transcripts of what was actually spoken.
+- Implemented `backend/src/backend/services/acoustics.py`:
+  - Decoded audio input with timing and silence preserved.
+  - Short-Time Energy Root Mean Square (RMS) frame VAD (25ms frame, 10ms hop, -40 dBFS threshold, 150ms hangover window, 80ms min speech filter).
+  - Peripheral silence separation (leading and trailing silence isolated from internal pauses).
+  - Internal non-speech gaps (>= 250ms threshold based on Goldman-Eisler 1968) treated strictly as physical measurements, not mistakes.
+  - Transcript-derived speaking rate (overall WPM and articulation rate WPM) explicitly labeled as `rate_is_transcript_dependent = True`.
+  - Zero division safety on empty/silent audio; absolute prohibition of fake fluency or pronunciation scores.
+- Demonstrated acoustic analysis on private user recording `take_1.webm` (47.16s: 87.0% speech activity ratio, 0.44s leading, 0.70s trailing, 8 internal gaps averaging 0.52s, 119.6 overall WPM, 137.5 articulation WPM).
+- Verified with 114 passing automated tests (73 backend pytest, 41 frontend vitest) and clean frontend build.
+
+## [2026-10-13] milestone-3 | Day 3 (Increment 7): Acoustic Delivery Measurements Website Integration
+- Exposed `POST` and `GET /api/sessions/{session_id}/recordings/{take_number}/acoustics` in FastAPI (`acoustics.py`).
+- Offloaded PyAV audio decoding and RMS energy calculations off the async event loop using `asyncio.to_thread`.
+- Enforced loopback (`127.0.0.1`, `::1`, `localhost`) and development mode guards.
+- Implemented atomic disk persistence (`acoustics_take_{take_number}.json`) in session storage to survive server restarts.
+- Built `useAcoustics.ts` custom hook with `activeTakeRef` stale-response rejection on take-switching.
+- Integrated **Audio Delivery Measurements** card into `AudioPlayer.tsx` displaying recording duration, speech-active duration, speech percentage, leading/trailing silence, expandable gaps breakdown (&ge; 250ms), and WPM (only when transcript exists).
+- Maintained pedagogical and scientific integrity: clear detector assumptions, estimates labeling, pauses not labeled as mistakes, zero mock fluency/pronunciation/confidence scores.
+- Automated tests: 130 total passed (81 backend pytest, 49 frontend vitest across 9 suites), `npm run build` clean in 1.40s.
+
+## [2026-10-13] milestone-3 | Day 3 (Increment 8): User Screenshot UI Evidence & Internal Gap Acoustic Investigation
+- Recorded user screenshot evidence confirming simultaneous UI display of acoustic measurements and transcript; explicitly withheld passing detector/ASR accuracy.
+- Formulated playback instructions for `take_2.webm` (13.44s) in `backend/storage/recordings/sess_mv5ogffd_jhufe/take_2.webm` at 00:07–00:10.
+- Extracted exact timestamps for detected gap: `8.445s -> 9.160s` (duration `0.715s`).
+- Investigated frame RMS energy: explained that Whisper lexical word end at 7.76s differs from physical silence onset at 8.445s due to vocal release and post-vocalic breath (-27 to -24 dBFS); a 50ms transient click at 8.60s was safely rejected by the 80ms filter. Documented finding; recommended keeping -40 dBFS threshold stable without premature alterations.
+- Verified take-switching: added automated test in `AudioPlayer.test.tsx` verifying complete clearing of measurements and transcript when switching takes, and rejection of stale async responses.
+- Automated tests: 131 total passed (81 backend pytest, 50 frontend vitest across 9 suites), `npm run build` clean in 612ms.
+- Separated confirmed checks from pending checks (audible pause perceptual calibration and ASR benchmark WER pending).
+
+## [2026-10-13] milestone-3 | Day 3 (Increment 9): Clickable Gap Playback & Listening Comparison Confirmation
+- Recorded user's confirmation that listening comparison for Take #2 (00:07–00:10) was fine; other pending checks (WER benchmark, multi-speaker threshold calibration) retained as pending.
+- Implemented clickable gap playback in `AudioPlayer.tsx`:
+  - Rendered accessible `<button>` for each gap displaying start, end, and duration.
+  - Clicking seeks existing `<audio>` player to 0.75s before gap onset (`Math.max(0, start - 0.75)`), auto-starting playback.
+  - Reuses existing audio player without spawning secondary instances or overlapping audio.
+  - Keyboard accessible with descriptive `aria-label`, visible focus indicator, and title.
+  - Zero-clamping boundary tested and verified.
+- Automated tests: 131 total passed (81 backend pytest, 50 frontend vitest across 9 suites), `npm run build` clean in 537ms.
+
+## [2026-10-13] milestone-3 | Day 3 (Increment 10): Interactive Transcript Playback & Decimal Gap Timestamps
+- Recorded user's confirmation that clicking a detected gap button plays the correct audio section; kept WER benchmark and multi-speaker threshold calibration pending.
+- Formatted gap breakdown timestamps with decimal seconds (`mm:ss.SS`) using integer-hundredths arithmetic to prevent short gaps from appearing with identical start and end values.
+- Implemented interactive transcript playback in `AudioPlayer.tsx`:
+  - Tokenized word rendering: clickable buttons when `seg.words` exists; clicking seeks existing player to `Math.max(0, w.start - 0.25)` (250ms lead-in) and starts playback.
+  - Active word highlighting: `.transcript-word-active` synchronized to `currentTime` via `timeupdate`.
+  - Fallback segment phrase seeking and `.transcript-segment-active` highlighting when word timings are absent.
+  - Approximate alignment disclaimer: added `"Approximate Alignment"` badge and academic integrity notice stating timestamps are approximate cross-attention weights and do not claim phoneme-level precision.
+  - Safe text rendering: standard React JSX nodes without `dangerouslySetInnerHTML`.
+  - Single audio element reuse: prevents overlapping audio streams; full keyboard accessibility.
+  - Complete state reset on take-switching: clears highlights, words, segments, and gaps.
+- Recorded user manual confirmation that word-click seeking and playback highlighting work in the live browser interface.
+- Automated tests: 132 total passed (81 backend pytest, 51 frontend vitest across 9 suites), `npm run build` clean in 583ms.
+
+
+
+
+
 
 
 

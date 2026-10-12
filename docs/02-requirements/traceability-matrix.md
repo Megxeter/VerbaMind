@@ -18,8 +18,10 @@ This matrix establishes end-to-end traceability between product requirements, ar
 | **FR-03.1B**| Bounded async worker queue & transcription API | Backend / Worker & API | `backend/services/transcription_worker.py`, `backend/api/v1/endpoints/transcription.py` | `test_transcription_api.py`, `scratch/test_live_transcription_api.py` | Implemented & Verified |
 | **FR-03.1C**| Offline ASR model comparison & WER evaluation | Backend / ASR CLI & Models | `backend/cli/compare_models.py`, `models/whisper/small.en` | `test_model_comparison.py` | Implemented & Verified |
 | **FR-04.1A**| Browser transcription trigger & safe text presentation | Frontend / Audio Player & Hooks | `frontend/src/hooks/useTranscription.ts`, `frontend/src/components/AudioPlayer.tsx` | `useTranscription.test.ts`, `AudioPlayer.test.tsx` | Implemented & Verified |
-| **FR-03.2** | Acoustic pause & filler detection | Backend / Acoustic Worker | `backend/services/acoustics.py` | `test_acoustics.py` | Proposed (Phase 2) |
-| **FR-04.1** | Interactive timestamp-linked transcript | Frontend / Feedback UI | `frontend/src/components/InteractiveTranscript.tsx` | `InteractiveTranscript.test.tsx` | Proposed (Phase 3) |
+| **FR-03.2** | Acoustic speech activity & internal non-speech gap analysis | Backend / Acoustic Service | `backend/services/acoustics.py`, `backend/api/v1/endpoints/acoustics.py` | `test_acoustics.py`, `test_acoustics_api.py` | Implemented & User-Verified |
+| **FR-04.1B**| Browser acoustic delivery measurements panel, gap breakdown & clickable gap seeking | Frontend / Audio Player & Hooks | `frontend/src/hooks/useAcoustics.ts`, `frontend/src/components/AudioPlayer.tsx` | `useAcoustics.test.ts`, `AudioPlayer.test.tsx` | Implemented & User-Verified |
+| **FR-04.1** | Interactive timestamp-linked transcript with word seeking & active highlighting | Frontend / Audio Player | `frontend/src/components/AudioPlayer.tsx` | `AudioPlayer.test.tsx` | Implemented & User-Verified |
+| **FR-03.2B**| Filler word detection ('um', 'uh') | Backend / Acoustic Worker | `backend/services/fillers.py` | `test_fillers.py` | Proposed (Phase 2) |
 | **FR-04.3** | Take-by-take retry comparison | Frontend / Analytics | `frontend/src/components/RetryComparison.tsx` | `RetryComparison.test.tsx` | Proposed (Phase 3) |
 
 ---

@@ -34,7 +34,7 @@ def compute_wer(reference: str, hypothesis: str) -> dict:
 
     if r_len == 0:
         return {
-            "wer": 0.0 if h_len == 0 else 1.0,
+            "wer": None,  # Explicitly undefined: division by zero (reference has 0 words)
             "substitutions": 0,
             "deletions": 0,
             "insertions": h_len,
@@ -68,6 +68,69 @@ def compute_wer(reference: str, hypothesis: str) -> dict:
         "insertions": ins_cnt,
         "ref_count": r_len,
         "hyp_count": h_len,
+    }
+
+
+def load_reference_text(reference_text: str | None = None, reference_file: str | None = None) -> str | None:
+    """
+    Loads ground truth reference text from CLI string or file path.
+    Raises FileNotFoundError if reference_file is given but does not exist.
+    """
+    if reference_file is not None:
+        ref_path = Path(reference_file).resolve()
+        if not ref_path.is_file():
+            raise FileNotFoundError(f"Reference file not found at: {ref_path}")
+        return ref_path.read_text(encoding="utf-8").strip()
+    if reference_text is not None:
+        return reference_text.strip()
+    return None
+
+
+def compute_aggregate_wer(evaluations: list[dict]) -> dict:
+    """
+    Calculates corpus-level aggregate Word Error Rate across multiple evaluations.
+    Invariants:
+    - Aggregate WER = (total_S + total_D + total_I) / total_N_ref
+    - Empty-reference evaluations (ref_count == 0 or wer is None) MUST be explicitly
+      excluded from the aggregate WER calculation.
+    """
+    valid_evals = [
+        e for e in evaluations
+        if e.get("wer_stats") and e["wer_stats"]["ref_count"] > 0 and e["wer_stats"]["wer"] is not None
+    ]
+    excluded_evals = [
+        e for e in evaluations
+        if not e.get("wer_stats") or e["wer_stats"]["ref_count"] == 0 or e["wer_stats"]["wer"] is None
+    ]
+
+    if not valid_evals:
+        return {
+            "aggregate_wer": None,
+            "total_substitutions": 0,
+            "total_deletions": 0,
+            "total_insertions": 0,
+            "total_ref_words": 0,
+            "total_hyp_words": sum(e.get("wer_stats", {}).get("hyp_count", 0) for e in evaluations),
+            "included_recordings": 0,
+            "excluded_recordings": len(excluded_evals),
+        }
+
+    tot_s = sum(e["wer_stats"]["substitutions"] for e in valid_evals)
+    tot_d = sum(e["wer_stats"]["deletions"] for e in valid_evals)
+    tot_i = sum(e["wer_stats"]["insertions"] for e in valid_evals)
+    tot_ref = sum(e["wer_stats"]["ref_count"] for e in valid_evals)
+    tot_hyp = sum(e["wer_stats"]["hyp_count"] for e in valid_evals)
+
+    agg_wer = (tot_s + tot_d + tot_i) / tot_ref
+    return {
+        "aggregate_wer": round(agg_wer, 4),
+        "total_substitutions": tot_s,
+        "total_deletions": tot_d,
+        "total_insertions": tot_i,
+        "total_ref_words": tot_ref,
+        "total_hyp_words": tot_hyp,
+        "included_recordings": len(valid_evals),
+        "excluded_recordings": len(excluded_evals),
     }
 
 
@@ -106,7 +169,7 @@ def evaluate_model(
         "segments_count": len(result.segments),
     }
 
-    if reference_text:
+    if reference_text is not None:
         wer_stats = compute_wer(reference_text, result.text)
         eval_data["wer_stats"] = wer_stats
 
@@ -125,11 +188,11 @@ def main():
         print(f"Error: Audio file not found at {audio_file}", file=sys.stderr)
         sys.exit(1)
 
-    ref_text = args.reference_text
-    if args.reference_file:
-        ref_path = Path(args.reference_file).resolve()
-        if ref_path.is_file():
-            ref_text = ref_path.read_text(encoding="utf-8").strip()
+    try:
+        ref_text = load_reference_text(args.reference_text, args.reference_file)
+    except FileNotFoundError as err:
+        print(f"Error: {err}", file=sys.stderr)
+        sys.exit(1)
 
     base_dir = settings.WHISPER_MODEL_DIR  # models/whisper/base.en
     small_dir = settings.WHISPER_MODEL_DIR.parent / "small.en"
@@ -152,25 +215,31 @@ def main():
     print("MODEL COMPARISON SUMMARY")
     print("=" * 80)
     print(f"Audio Duration: {base_eval['audio_duration_seconds']:.2f}s")
-    if ref_text:
+    if ref_text is not None:
         print(f"Reference Text: {ref_text}")
     print("-" * 80)
-    print(f"BASE.EN:")
+    print("BASE.EN:")
     print(f"  Raw Output:      {base_eval['raw_transcript']}")
     print(f"  Latency:         {base_eval['processing_time_seconds']:.2f}s (RTF: {base_eval['real_time_factor']}x)")
     print(f"  Word Count:      {base_eval['word_count']}")
     if "wer_stats" in base_eval:
         ws = base_eval["wer_stats"]
-        print(f"  WER:             {ws['wer'] * 100:.1f}% (Sub: {ws['substitutions']}, Del: {ws['deletions']}, Ins: {ws['insertions']}, Ref Words: {ws['ref_count']})")
+        if ws["wer"] is not None:
+            print(f"  WER:             {ws['wer'] * 100:.1f}% (Sub: {ws['substitutions']}, Del: {ws['deletions']}, Ins: {ws['insertions']}, Ref Words: {ws['ref_count']})")
+        else:
+            print("  WER:             Undefined (reference word count is 0)")
 
     print("-" * 80)
-    print(f"SMALL.EN:")
+    print("SMALL.EN:")
     print(f"  Raw Output:      {small_eval['raw_transcript']}")
     print(f"  Latency:         {small_eval['processing_time_seconds']:.2f}s (RTF: {small_eval['real_time_factor']}x)")
     print(f"  Word Count:      {small_eval['word_count']}")
     if "wer_stats" in small_eval:
         ws = small_eval["wer_stats"]
-        print(f"  WER:             {ws['wer'] * 100:.1f}% (Sub: {ws['substitutions']}, Del: {ws['deletions']}, Ins: {ws['insertions']}, Ref Words: {ws['ref_count']})")
+        if ws["wer"] is not None:
+            print(f"  WER:             {ws['wer'] * 100:.1f}% (Sub: {ws['substitutions']}, Del: {ws['deletions']}, Ins: {ws['insertions']}, Ref Words: {ws['ref_count']})")
+        else:
+            print("  WER:             Undefined (reference word count is 0)")
     print("=" * 80)
 
     # Save summary report to JSON
