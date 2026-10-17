@@ -146,6 +146,35 @@ This append-only log tracks every ingest, synthesis, and architectural milestone
 - Recorded user manual confirmation that word-click seeking and playback highlighting work in the live browser interface.
 - Automated tests: 132 total passed (81 backend pytest, 51 frontend vitest across 9 suites), `npm run build` clean in 583ms.
 
+## [2026-10-17] milestone-3 | Day 4 (Increment 11): Same-Exercise Attempt Comparison & Baseline Retention
+- Reconciled ASR reference inventory:
+  - Verified `backend/storage/evaluations/ref_clip1.txt` corresponds to Clip 1 (`sess_mv5bkhj0_kq76r/take_3.webm`).
+  - Recorded that Clip 2 reference text was not persisted on Day 3 and Clip 3 reference text has not been submitted.
+  - Maintained scientific invariant: retained 3-clip ASR benchmark as pending; did not fabricate reference transcripts or switch the default recognizer (`base.en`).
+- Designed and implemented side-by-side attempt comparison engine (`frontend/src/utils/comparison.ts`):
+  - Computes signed numeric differences ($\Delta = \text{Current} - \text{Baseline}$) with units for duration, speech-active time, speech activity ratio, internal pause count ($\ge 250\text{ ms}$), total/mean pause duration, and WPM (when transcripts are available).
+  - Handles missing transcripts safely (`N/A (Transcript required)`) without failing acoustic comparisons.
+  - Implemented compatibility auditor (`checkCompatibility`) flagging mismatches in exercise ID, energy threshold, minimum gap duration, or recognizer model.
+  - Strictly enforced scientific integrity: zero assessment scores (no grades, fluency scores, or percentage ratings); faster speech or fewer pauses are never labeled as "improvement".
+- Implemented stateful comparison management (`frontend/src/hooks/useAttemptComparison.ts`):
+  - Retains baseline attempt in browser memory across subsequent takes and exercise actions.
+  - Allocates dedicated Object URLs from Blobs to isolate baseline playback from recorder take resets.
+  - Safely revokes Object URLs via `URL.revokeObjectURL` on replacement, clearing, and component unmount.
+- Built responsive comparison UI (`AttemptComparison.tsx`, `AudioPlayer.tsx`, `App.tsx`, `index.css`):
+  - Side-by-side data table with signed delta chips and unit labels.
+  - Single active audio player invariant: switches track source between Current and Baseline without spawning multiple `<audio>` elements.
+  - Persistent baseline banner in recording studio during recording and pause.
+  - Prominent pedagogical and scientific disclaimers: explains physical measurements vs qualitative assessments, and clearly marks data as session-only memory that clears on page reload.
+- Verification & Test Coverage:
+  - 152 automated tests passed (81 backend pytest, 71 frontend vitest across 12 suites, +20 new tests).
+  - Production build clean (`tsc -b && vite build` in 1.11s).
+  - Speech activity ratio difference calibrated to percentage points (`pp`) in response to user review.
+  - User-confirmed manual checks recorded: side-by-side attempt comparison rendering, single-player audio switching without overlap, current take WPM display after transcription and re-analysis, and screenshot validation of gap measurements and numeric differences.
+  - ASR Evaluation Checkpoint: Clip 1 verified; Clip 2 verified across 5 differences via auditory auditioning; Clip 3 partially verified (3 of 4 differences confirmed; Difference 4 pending).
+  - Published comprehensive Day 4 technical explanation and viva defense guide: `docs/13-learning-and-submission/explanations/2026-10-17-day-4-work-explanation.pdf` and markdown source.
+
+
+
 
 
 

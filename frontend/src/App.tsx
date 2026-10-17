@@ -8,6 +8,7 @@ import { MicPermissionNotice } from './components/MicPermissionNotice'
 import { SAMPLE_EXERCISES } from './data/exercises'
 import type { Exercise } from './types/exercise'
 import { useAudioRecorder } from './hooks/useAudioRecorder'
+import { useAttemptComparison } from './hooks/useAttemptComparison'
 
 export const App: React.FC = () => {
   const [selectedExercise, setSelectedExercise] = useState<Exercise>(SAMPLE_EXERCISES[0])
@@ -16,6 +17,8 @@ export const App: React.FC = () => {
   const [sessionId] = useState<string>(
     () => `sess_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`
   )
+
+  const { baselineAttempt, setBaseline, clearBaseline } = useAttemptComparison()
 
   const {
     status,
@@ -103,6 +106,27 @@ export const App: React.FC = () => {
           />
 
           <div className="studio-card">
+            {/* Retained Baseline Notification during Recording/Processing */}
+            {baselineAttempt && status !== 'stopped' && (
+              <div className="baseline-banner-studio" id="baseline-active-banner">
+                <div className="baseline-banner-content">
+                  <span className="badge badge-accent">Comparison Baseline Retained</span>
+                  <span className="baseline-banner-text">
+                    Take #{baselineAttempt.takeNumber} ({baselineAttempt.exerciseTitle}) is active as baseline. Record and analyse Take #{takeNumber} to compare delivery.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-xs"
+                  onClick={clearBaseline}
+                  title="Clear retained baseline and release memory"
+                  id="studio-clear-baseline-btn"
+                >
+                  Clear Baseline
+                </button>
+              </div>
+            )}
+
             {/* Live Audio Visualizer */}
             <AudioVisualizer
               isRecording={isRecording}
@@ -134,6 +158,9 @@ export const App: React.FC = () => {
                   sessionId={sessionId}
                   takeNumber={takeNumber}
                   onRecordAnotherTake={handleRecordAnotherTake}
+                  baselineAttempt={baselineAttempt}
+                  onSetBaseline={setBaseline}
+                  onClearBaseline={clearBaseline}
                 />
               </div>
             )}

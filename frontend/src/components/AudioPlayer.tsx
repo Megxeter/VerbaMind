@@ -2,6 +2,9 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useAcoustics } from '../hooks/useAcoustics'
 import { useAudioUpload } from '../hooks/useAudioUpload'
 import { useTranscription } from '../hooks/useTranscription'
+import { AttemptComparison } from './AttemptComparison'
+import type { StoredAttempt } from '../types/comparison'
+import type { SetBaselinePayload } from '../hooks/useAttemptComparison'
 
 interface AudioPlayerProps {
   audioUrl: string
@@ -12,6 +15,9 @@ interface AudioPlayerProps {
   sessionId: string
   takeNumber: number
   onRecordAnotherTake: () => void
+  baselineAttempt?: StoredAttempt | null
+  onSetBaseline?: (payload: SetBaselinePayload) => void
+  onClearBaseline?: () => void
 }
 
 function formatPlayerTime(seconds: number): string {
@@ -40,6 +46,9 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   sessionId,
   takeNumber,
   onRecordAnotherTake,
+  baselineAttempt = null,
+  onSetBaseline,
+  onClearBaseline,
 }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -47,6 +56,12 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const [duration, setDuration] = useState(0)
   const [showSegments, setShowSegments] = useState(false)
   const [showGaps, setShowGaps] = useState(false)
+  const [activeAudioTrack, setActiveAudioTrack] = useState<'current' | 'baseline'>('current')
+
+  const activeAudioUrl =
+    activeAudioTrack === 'baseline' && baselineAttempt?.audioUrl
+      ? baselineAttempt.audioUrl
+      : audioUrl
 
   const {
     status: uploadStatus,
@@ -76,6 +91,9 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     const audio = audioRef.current
     if (!audio) return
 
+    setIsPlaying(false)
+    setCurrentTime(0)
+
     const handleLoadedMetadata = () => {
       if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
         setDuration(audio.duration)
@@ -100,10 +118,11 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       audio.removeEventListener('timeupdate', handleTimeUpdate)
       audio.removeEventListener('ended', handleEnded)
     }
-  }, [audioUrl])
+  }, [activeAudioUrl])
 
   // Reset upload, transcription, and acoustics status when audio URL changes (new take recorded)
   useEffect(() => {
+    setActiveAudioTrack('current')
     resetUpload()
     resetTranscription()
     resetAcoustics()
@@ -135,14 +154,30 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   }
 
   const handleDownload = () => {
-    if (!audioBlob && !audioUrl) return
+    const dlUrl = activeAudioTrack === 'baseline' && baselineAttempt?.audioUrl ? baselineAttempt.audioUrl : audioUrl
+    const dlTake = activeAudioTrack === 'baseline' && baselineAttempt ? baselineAttempt.takeNumber : takeNumber
+    if (!dlUrl) return
     const a = document.createElement('a')
-    a.href = audioUrl
+    a.href = dlUrl
     const extension = mimeType?.includes('ogg') ? 'ogg' : mimeType?.includes('mp4') ? 'm4a' : 'webm'
-    a.download = `verbamind_take_${takeNumber}_${Date.now()}.${extension}`
+    a.download = `verbamind_take_${dlTake}_${Date.now()}.${extension}`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
+  }
+
+  const handleSetBaseline = () => {
+    if (!onSetBaseline || !acousticMeasurements) return
+    onSetBaseline({
+      takeNumber,
+      exerciseId,
+      exerciseTitle,
+      audioBlob,
+      mimeType,
+      measurements: acousticMeasurements,
+      transcript,
+      createdAt: new Date().toISOString(),
+    })
   }
 
   const handleUpload = async () => {
@@ -191,6 +226,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   }
 
   const handleNextTake = () => {
+    setActiveAudioTrack('current')
     resetUpload()
     resetTranscription()
     resetAcoustics()
@@ -203,13 +239,21 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   return (
     <div className="audio-player-card">
-      <audio ref={audioRef} src={audioUrl} preload="metadata" />
+      <audio ref={audioRef} src={activeAudioUrl} preload="metadata" />
 
       <div className="player-top-row">
         <div className="player-meta">
           <div className="player-badge-group">
-            <span className="badge badge-success">Take #{takeNumber} Captured</span>
-            <span className="player-filesize">{sizeKb} KB ({mimeType || 'audio/webm'})</span>
+            {activeAudioTrack === 'baseline' && baselineAttempt ? (
+              <span className="badge badge-accent">Playing Baseline (Take #{baselineAttempt.takeNumber})</span>
+            ) : (
+              <span className="badge badge-success">Take #{takeNumber} Captured</span>
+            )}
+            <span className="player-filesize">
+              {activeAudioTrack === 'baseline' && baselineAttempt?.audioBlob
+                ? `${Math.round(baselineAttempt.audioBlob.size / 1024)} KB`
+                : `${sizeKb} KB`} ({mimeType || 'audio/webm'})
+            </span>
           </div>
           <h4 className="player-title">{exerciseTitle}</h4>
         </div>
@@ -347,6 +391,28 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
               </svg>
               Retry Delivery Analysis
+            </button>
+          )}
+
+          {/* Set Baseline Action (Available after successful acoustic analysis) */}
+          {acousticsStatus === 'completed' && onSetBaseline && (
+            <button
+              type="button"
+              className={`btn btn-sm ${baselineAttempt?.takeNumber === takeNumber ? 'btn-success-subtle' : 'btn-outline'}`}
+              onClick={handleSetBaseline}
+              title={
+                baselineAttempt?.takeNumber === takeNumber
+                  ? 'Current take is retained as baseline'
+                  : `Retain Take #${takeNumber} as baseline for attempt comparison`
+              }
+              id="retain-baseline-btn"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+              </svg>
+              {baselineAttempt?.takeNumber === takeNumber
+                ? `Baseline (Take #${takeNumber}) Active`
+                : `Retain Take #${takeNumber} as Baseline`}
             </button>
           )}
 
@@ -801,6 +867,52 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               Token probabilities are internal acoustic confidence metrics and must <em>not</em> be conflated with pronunciation or fluency scores.
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Same-Exercise Attempt Comparison Section */}
+      {baselineAttempt && acousticMeasurements && (
+        <AttemptComparison
+          baselineAttempt={baselineAttempt}
+          currentAttempt={{
+            takeNumber,
+            exerciseId,
+            exerciseTitle,
+            audioBlob,
+            audioUrl,
+            mimeType,
+            measurements: acousticMeasurements,
+            transcript,
+            createdAt: new Date().toISOString(),
+          }}
+          activeAudioTrack={activeAudioTrack}
+          onSelectAudioTrack={setActiveAudioTrack}
+          onReplaceBaseline={() => {
+            onSetBaseline?.({
+              takeNumber,
+              exerciseId,
+              exerciseTitle,
+              audioBlob,
+              mimeType,
+              measurements: acousticMeasurements,
+              transcript,
+              createdAt: new Date().toISOString(),
+            })
+            setActiveAudioTrack('current')
+          }}
+          onClearBaseline={() => {
+            onClearBaseline?.()
+            setActiveAudioTrack('current')
+          }}
+        />
+      )}
+
+      {baselineAttempt && acousticsStatus !== 'completed' && (
+        <div className="baseline-pending-banner" id="baseline-pending-callout">
+          <span className="badge badge-accent">Comparison Baseline Ready</span>
+          <span>
+            Take #{baselineAttempt.takeNumber} is retained as baseline. Click <strong>Analyze Delivery</strong> above to compare Take #{takeNumber} side-by-side with your baseline.
+          </span>
         </div>
       )}
 

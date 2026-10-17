@@ -32,7 +32,7 @@ Audio Capture & Playback      FastAPI & STT   Evidence Feedback  Fluency Model  
 - [x] Bounded asynchronous worker queue (`transcription_worker.py`) with memory deduplication.
 - [x] Full-stack browser integration: upload and offline transcription rendered with Academic Integrity Notice.
 - [x] Offline model comparison tooling (`base.en` vs `small.en`) with Levenshtein alignment.
-- [ ] Multi-recording ASR benchmark calibration on 3 recordings with verified human ground truth (Pending user-verified reference transcripts).
+- [ ] Multi-recording ASR benchmark calibration on 3 recordings with verified human ground truth (Checkpoint: Clips 1 & 2 verified; Clip 3 partially verified with 3 of 4 differences confirmed; benchmark script execution pending).
 
 ---
 
@@ -41,7 +41,7 @@ Audio Capture & Playback      FastAPI & STT   Evidence Feedback  Fluency Model  
 - [x] Acoustic analysis module & delivery panel: decoded audio timing, speech activity ratio, leading/trailing silence separation, internal non-speech gaps (≥ 250ms), clickable gap seeking, transcript-derived WPM, and frontend Audio Delivery Measurements panel with stale-take guards. (Implemented & User-Verified)
 - [x] Synchronized interactive transcript player linked to audio playback with word-seeking, real-time playback highlighting, segment fallback, and approximate alignment notice. (Implemented & User-Verified)
 - [ ] Acoustic pause thresholding & filled pause detection (`um`, `uh`). (Deferred to future increment)
-- [ ] Retry comparison view (Take 1 vs Take 2 deltas). (Planned Phase 3)
+- [x] Same-exercise attempt comparison & baseline retention: retain one analysed attempt as comparison baseline, side-by-side metric table, signed numeric differences with units, configuration divergence auditing, single-player track switching, and session-only memory. (Implemented & Verified)
 
 ---
 

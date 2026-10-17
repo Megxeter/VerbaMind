@@ -825,5 +825,248 @@ describe('AudioPlayer Component', () => {
 
     playSpy.mockRestore()
   })
+
+  it('handles retaining take as comparison baseline after acoustic analysis', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/acoustics')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            session_id: 'sess_test_1',
+            take_number: 1,
+            total_duration_seconds: 40.0,
+            detected_speech_duration_seconds: 30.0,
+            speech_activity_ratio: 0.75,
+            speech_activity_percentage: 75.0,
+            leading_silence_seconds: 0.5,
+            trailing_silence_seconds: 0.5,
+            internal_gaps: [],
+            internal_gap_count: 0,
+            total_internal_gap_duration_seconds: 0.0,
+            mean_internal_gap_duration_seconds: 0.0,
+            transcript_word_count: null,
+            words_per_minute_total: null,
+            words_per_minute_speech_only: null,
+            rate_is_transcript_dependent: false,
+            detector_type: 'energy_rms',
+            energy_threshold_db: -40.0,
+            min_gap_duration_seconds: 0.25,
+            sample_rate_hz: 16000,
+          }),
+        })
+      }
+      if (url.includes('/recording')) {
+        return Promise.resolve({
+          ok: true,
+          status: 201,
+          json: async () => ({
+            session_id: 'sess_test_1',
+            exercise_id: 'self-intro',
+            take_number: 1,
+            file_id: 'take_1.webm',
+            byte_size: 15360,
+            mime_type: 'audio/webm',
+            created_at: '2026-10-17T12:00:00Z',
+            status: 'uploaded',
+          }),
+        })
+      }
+      return Promise.reject(new Error(`Unhandled URL: ${url}`))
+    })
+
+    const onSetBaseline = vi.fn()
+
+    render(
+      <AudioPlayer
+        audioUrl={fakeUrl}
+        audioBlob={fakeBlob}
+        mimeType="audio/webm"
+        exerciseTitle="Self-Introduction"
+        exerciseId="self-intro"
+        sessionId="sess_test_1"
+        takeNumber={1}
+        onRecordAnotherTake={vi.fn()}
+        onSetBaseline={onSetBaseline}
+      />
+    )
+
+    // Upload take 1
+    fireEvent.click(screen.getByRole('button', { name: /upload recording/i }))
+    await waitFor(() => {
+      expect(screen.getByText(/take #1 uploaded/i)).toBeInTheDocument()
+    })
+
+    // Analyze acoustics
+    fireEvent.click(screen.getByRole('button', { name: /analyze delivery/i }))
+    await waitFor(() => {
+      expect(screen.getByText('Audio Delivery Measurements')).toBeInTheDocument()
+    })
+
+    // "Retain Take #1 as Baseline" button should now be available
+    const retainBtn = screen.getByRole('button', { name: /retain take #1 as baseline/i })
+    expect(retainBtn).toBeInTheDocument()
+
+    fireEvent.click(retainBtn)
+    expect(onSetBaseline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        takeNumber: 1,
+        exerciseId: 'self-intro',
+        audioBlob: fakeBlob,
+        measurements: expect.objectContaining({
+          total_duration_seconds: 40.0,
+          speech_activity_percentage: 75.0,
+        }),
+      })
+    )
+  })
+
+  it('displays side-by-side comparison and switches active audio track in single player', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/acoustics')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            session_id: 'sess_test_1',
+            take_number: 2,
+            total_duration_seconds: 45.0,
+            detected_speech_duration_seconds: 36.0,
+            speech_activity_ratio: 0.8,
+            speech_activity_percentage: 80.0,
+            leading_silence_seconds: 0.4,
+            trailing_silence_seconds: 0.4,
+            internal_gaps: [
+              { start_seconds: 10.0, end_seconds: 11.0, duration_seconds: 1.0 },
+            ],
+            internal_gap_count: 1,
+            total_internal_gap_duration_seconds: 1.0,
+            mean_internal_gap_duration_seconds: 1.0,
+            transcript_word_count: null,
+            words_per_minute_total: null,
+            words_per_minute_speech_only: null,
+            rate_is_transcript_dependent: false,
+            detector_type: 'energy_rms',
+            energy_threshold_db: -40.0,
+            min_gap_duration_seconds: 0.25,
+            sample_rate_hz: 16000,
+          }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 201,
+        json: async () => ({ status: 'uploaded' }),
+      })
+    })
+
+    const baselineAttempt = {
+      takeNumber: 1,
+      exerciseId: 'self-intro',
+      exerciseTitle: 'Self-Introduction',
+      audioBlob: fakeBlob,
+      audioUrl: 'blob:http://localhost:5173/mock-baseline-audio',
+      mimeType: 'audio/webm',
+      measurements: {
+        total_duration_seconds: 40.0,
+        detected_speech_duration_seconds: 30.0,
+        speech_activity_ratio: 0.75,
+        speech_activity_percentage: 75.0,
+        leading_silence_seconds: 0.5,
+        trailing_silence_seconds: 0.5,
+        internal_gaps: [
+          { start_seconds: 5.0, end_seconds: 6.0, duration_seconds: 1.0 },
+          { start_seconds: 15.0, end_seconds: 16.0, duration_seconds: 1.0 },
+          { start_seconds: 25.0, end_seconds: 26.0, duration_seconds: 1.0 },
+        ],
+        internal_gap_count: 3,
+        total_internal_gap_duration_seconds: 3.0,
+        mean_internal_gap_duration_seconds: 1.0,
+        transcript_word_count: null,
+        words_per_minute_total: null,
+        words_per_minute_speech_only: null,
+        rate_is_transcript_dependent: false,
+        detector_type: 'energy_rms',
+        energy_threshold_db: -40.0,
+        min_gap_duration_seconds: 0.25,
+        sample_rate_hz: 16000,
+      },
+      transcript: null,
+      createdAt: '2026-10-17T12:00:00Z',
+    }
+
+    const onSetBaseline = vi.fn()
+    const onClearBaseline = vi.fn()
+
+    const { container } = render(
+      <AudioPlayer
+        audioUrl={fakeUrl}
+        audioBlob={fakeBlob}
+        mimeType="audio/webm"
+        exerciseTitle="Self-Introduction"
+        exerciseId="self-intro"
+        sessionId="sess_test_1"
+        takeNumber={2}
+        onRecordAnotherTake={vi.fn()}
+        baselineAttempt={baselineAttempt}
+        onSetBaseline={onSetBaseline}
+        onClearBaseline={onClearBaseline}
+      />
+    )
+
+    // Before acoustics analysis, shows pending banner
+    expect(screen.getByText(/Comparison Baseline Ready/i)).toBeInTheDocument()
+
+    // Upload take 2
+    fireEvent.click(screen.getByRole('button', { name: /upload recording/i }))
+    await waitFor(() => {
+      expect(screen.getByText(/take #2 uploaded/i)).toBeInTheDocument()
+    })
+
+    // Analyze delivery for take 2
+    fireEvent.click(screen.getByRole('button', { name: /analyze delivery/i }))
+    await waitFor(() => {
+      expect(screen.getByText('Same-Exercise Attempt Comparison')).toBeInTheDocument()
+    })
+
+    // Side-by-side metric comparison rendered
+    expect(screen.getByText('+5.0 s')).toBeInTheDocument() // 45.0 - 40.0
+    expect(screen.getByText('+6.0 s')).toBeInTheDocument() // 36.0 - 30.0
+    expect(screen.getByText('+5.0 pp')).toBeInTheDocument() // 80.0 - 75.0 (percentage points)
+    expect(screen.getByText('-2 gaps')).toBeInTheDocument() // 1 - 3
+    expect(screen.getByText('-2.0 s')).toBeInTheDocument() // 1.0 - 3.0
+
+    // Verify SINGLE audio element exists in DOM
+    const audioElements = container.querySelectorAll('audio')
+    expect(audioElements.length).toBe(1)
+    const audioEl = audioElements[0]
+    expect(audioEl.getAttribute('src')).toBe(fakeUrl)
+
+    // Switch active player track to Baseline (Take #1)
+    const listenBaselineBtn = screen.getByRole('button', { name: /Listen to Take #1 \(Baseline\)/i })
+    fireEvent.click(listenBaselineBtn)
+
+    // Audio element source switched to baseline URL without spawning secondary audio instances
+    await waitFor(() => {
+      expect(audioEl.getAttribute('src')).toBe('blob:http://localhost:5173/mock-baseline-audio')
+      expect(screen.getByText(/Playing Baseline \(Take #1\)/i)).toBeInTheDocument()
+    })
+    expect(container.querySelectorAll('audio').length).toBe(1)
+
+    // Switch back to Current Take (Take #2)
+    const listenCurrentBtn = screen.getByRole('button', { name: /Listen to Take #2 \(Current Take\)/i })
+    fireEvent.click(listenCurrentBtn)
+
+    await waitFor(() => {
+      expect(audioEl.getAttribute('src')).toBe(fakeUrl)
+      expect(screen.getByText(/Take #2 Captured/i)).toBeInTheDocument()
+    })
+    expect(container.querySelectorAll('audio').length).toBe(1)
+
+    // Clear baseline
+    const clearBtn = screen.getByRole('button', { name: /clear baseline/i })
+    fireEvent.click(clearBtn)
+    expect(onClearBaseline).toHaveBeenCalled()
+  })
 })
 

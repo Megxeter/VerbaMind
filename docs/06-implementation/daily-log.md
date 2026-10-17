@@ -770,6 +770,97 @@
   1. ASR Multi-Recording Benchmark (WER) strictly pending user-provided actual-speech reference transcripts.
   2. Multi-speaker acoustic threshold calibration pending further multi-speaker evaluation.
 
+---
+
+## Day 4 — Increment 11: Same-Exercise Attempt Comparison & Baseline Retention (2026-10-17)
+
+### 1. Summary of Actions
+- **ASR Reference Inventory & Benchmark Status Reconciliation**:
+  - Inspected local storage evaluations: confirmed `backend/storage/evaluations/ref_clip1.txt` contains `"My name is Yasir and I'm building Verba Mind."` corresponding to Clip 1 (`sess_mv5bkhj0_kq76r/take_3.webm`).
+  - Confirmed Clip 2 reference text was not persisted prior to Day 3 closeout; Clip 3 reference text has not been submitted.
+  - In strict compliance with scientific invariants, retained the three-recording ASR benchmark as pending; did not invent transcripts or alter default recognizer (`base.en`).
+- **Attempt Comparison Pure Arithmetic Engine (`frontend/src/utils/comparison.ts`)**:
+  - Implemented `computeAttemptComparison` computing signed numeric differences ($\Delta = \text{Current} - \text{Baseline}$) with units across:
+    1. Recording duration (`s`)
+    2. Estimated speech-active time (`s`)
+    3. Speech activity ratio (`%`)
+    4. Internal pause count ($\ge 250\text{ ms}$) (`gaps`)
+    5. Total internal pause duration (`s`)
+    6. Mean internal pause duration (`s`)
+    7. Estimated overall pace (`WPM`, transcript-dependent)
+    8. Estimated articulation rate (`WPM`, transcript-dependent)
+  - Handled missing transcripts gracefully: displays `N/A (Transcript required)` for WPM without breaking physical acoustic comparisons.
+  - Implemented `checkCompatibility` auditing exercise matching, detector energy threshold (-40.0 dBFS), minimum gap threshold (0.25s), and ASR recognizer model. Generates explicit warning banners on configuration divergence.
+  - Maintained scientific invariants: zero assessment scores (no grades, fluency scores, or percentage ratings); faster speech or fewer pauses are never labeled as "improvement".
+- **Attempt Comparison Hook (`frontend/src/hooks/useAttemptComparison.ts`)**:
+  - Stateful management of `baselineAttempt`.
+  - Created dedicated Object URLs (`URL.createObjectURL(blob)`) for baseline playback, decoupling baseline audio from recorder take resets.
+  - Safe memory cleanup: revokes prior baseline URLs on replacement or clearance (`URL.revokeObjectURL`) and on component unmount.
+- **Attempt Comparison UI Component (`frontend/src/components/AttemptComparison.tsx` & `index.css`)**:
+  - High-contrast, responsive side-by-side comparison table with signed deltas and units.
+  - Compatibility status and configuration divergence warning callout.
+  - Single active audio player track switcher: buttons to listen to Take #{baseline.takeNumber} (Baseline) or Take #{current.takeNumber} (Current) through the existing player without audio overlap.
+  - Academic & Scientific Integrity Notice: explicit disclaimer that faster pacing or fewer pauses do not inherently represent better communication.
+  - Session-only memory disclaimer: clearly explains data is in browser session memory and resets on reload.
+  - Actions to update baseline to current take or clear baseline completely.
+- **AudioPlayer & App Integration (`AudioPlayer.tsx`, `App.tsx`)**:
+  - Added "Retain Take #X as Baseline" action in `AudioPlayer` when acoustic analysis completes.
+  - Dynamic `activeAudioUrl` switching in `<audio ref={audioRef} src={activeAudioUrl} />`.
+  - Added persistent baseline notification chip in recording studio when a baseline is active during recording/pause.
+  - Preserved baseline across retakes, upload failures, and take switching.
+
+### 2. Changed Files
+- `frontend/src/types/comparison.ts`
+- `frontend/src/utils/comparison.ts`
+- `frontend/src/utils/comparison.test.ts`
+- `frontend/src/hooks/useAttemptComparison.ts`
+- `frontend/src/hooks/useAttemptComparison.test.ts`
+- `frontend/src/components/AttemptComparison.tsx`
+- `frontend/src/components/AttemptComparison.test.tsx`
+- `frontend/src/components/AudioPlayer.tsx`
+- `frontend/src/components/AudioPlayer.test.tsx`
+- `frontend/src/App.tsx`
+- `frontend/src/index.css`
+- `docs/02-requirements/traceability-matrix.md`
+- `docs/03-specifications/features/006-same-exercise-attempt-comparison.md`
+- `docs/05-design/modules/attempt-comparison.md`
+- `docs/06-implementation/milestones.md`
+- `docs/06-implementation/daily-log.md`
+- `docs/07-testing/test-evidence-day-4.md`
+- `docs/13-learning-and-submission/explanations/2026-10-17-day-4-work-explanation.md`
+- `docs/13-learning-and-submission/explanations/2026-10-17-day-4-work-explanation.pdf`
+- `docs/wiki/log.md`
+- `docs/wiki/index.md`
+
+### 3. Checks and Results
+- **Automated Tests**:
+  - Backend: `pytest` -> 81 passed in 5.23s (0 failures).
+  - Frontend: `vitest` -> 71 passed across 12 test files in 17.68s (+20 new tests, 0 failures).
+  - Frontend Build: `tsc -b && vite build` -> Clean compile in 1.11s (31 modules transformed, 0 errors).
+  - Total automated suite: **152 passed / 152 total**.
+- **Confirmed Checks (Automated)**:
+  1. Unit tests verify exact difference calculations and unit labeling (`pp` for speech activity ratio difference).
+  2. Missing transcript handling tested without breaking acoustic comparisons.
+  3. Single audio element DOM invariant verified during track switching.
+  4. Baseline Object URL allocation, replacement, and unmount revocation verified.
+  5. Absence of fake fluency scores or value judgments confirmed.
+  6. Configuration divergence warnings verified for exercise, detector, and model mismatches.
+- **User-Confirmed Checks (Live Manual Browser Testing — 2026-10-17)**:
+  1. Side-by-side attempt comparison renders both baseline and current takes cleanly.
+  2. Track switching plays the correct take without audio overlap using a single active `<audio>` player.
+  3. Current attempt displays WPM after transcription and re-analysis.
+  4. User screenshots confirm visual rendering of gap measurements and numeric differences.
+- **ASR Development Evaluation Checkpoint**:
+  1. Clip 1 (7.98s): Reference verified & saved (`ref_clip1.txt`).
+  2. Clip 2 (47.16s): Reference verified across all 5 differing word locations through interactive audio auditioning and saved (`ref_clip2.txt`).
+  3. Clip 3 (45.66s): Differences 1, 2, and 3 confirmed by user (`"final year computer science"`, `"algorithms"`, `"communication"`). Difference 4 (`"I am eager to"` vs `"and eager to"`) is pending user confirmation.
+- **Pending Checks (Explicitly Not Passed)**:
+  1. Multi-clip ASR benchmark execution (`compare_models.py` pending confirmation of Clip 3 Difference 4).
+  2. Acoustic detector parameter accuracy (-40.0 dBFS threshold, 250ms gap duration) on noisy/multi-speaker audio pending further evaluation.
+  3. Cross-session candidate history and durable persistence pending future milestones.
+
+
+
 
 
 

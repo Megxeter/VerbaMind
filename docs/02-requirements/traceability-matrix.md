@@ -21,8 +21,8 @@ This matrix establishes end-to-end traceability between product requirements, ar
 | **FR-03.2** | Acoustic speech activity & internal non-speech gap analysis | Backend / Acoustic Service | `backend/services/acoustics.py`, `backend/api/v1/endpoints/acoustics.py` | `test_acoustics.py`, `test_acoustics_api.py` | Implemented & User-Verified |
 | **FR-04.1B**| Browser acoustic delivery measurements panel, gap breakdown & clickable gap seeking | Frontend / Audio Player & Hooks | `frontend/src/hooks/useAcoustics.ts`, `frontend/src/components/AudioPlayer.tsx` | `useAcoustics.test.ts`, `AudioPlayer.test.tsx` | Implemented & User-Verified |
 | **FR-04.1** | Interactive timestamp-linked transcript with word seeking & active highlighting | Frontend / Audio Player | `frontend/src/components/AudioPlayer.tsx` | `AudioPlayer.test.tsx` | Implemented & User-Verified |
+| **FR-04.3** | Same-exercise attempt comparison & baseline retention | Frontend / Comparison Engine | `frontend/src/utils/comparison.ts`, `frontend/src/hooks/useAttemptComparison.ts`, `frontend/src/components/AttemptComparison.tsx`, `frontend/src/components/AudioPlayer.tsx` | `comparison.test.ts`, `useAttemptComparison.test.ts`, `AttemptComparison.test.tsx`, `AudioPlayer.test.tsx` | Implemented & User-Verified |
 | **FR-03.2B**| Filler word detection ('um', 'uh') | Backend / Acoustic Worker | `backend/services/fillers.py` | `test_fillers.py` | Proposed (Phase 2) |
-| **FR-04.3** | Take-by-take retry comparison | Frontend / Analytics | `frontend/src/components/RetryComparison.tsx` | `RetryComparison.test.tsx` | Proposed (Phase 3) |
 
 ---
 
